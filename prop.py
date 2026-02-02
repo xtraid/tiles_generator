@@ -3,19 +3,31 @@ import json
 from pathlib import Path
 
 class Prop:
-    """Rappresenta un oggetto posizionabile su una sezione specifica di un hex tile"""
+    """Rappresenta un oggetto posizionabile su una sezione specifica di un hex tile
+    
+    MODIFICHE AVANZATE:
+    - Supporto bioma: prop specifico per un bioma
+    - Supporto coloration: pattern e colori per la sezione
+    - Offset personalizzati: posizionamento pixel-perfect
+    """
     
     def __init__(self, prop_id, name, section_type, section_index=None, 
-                 visual=None, blocking=True, z_offset=0.0):
+                 visual=None, blocking=True, z_offset=0.0, biome=None, coloration=None):
         """
         Args:
             prop_id: identificatore univoco del tipo di prop
             name: nome descrittivo (es. "albero", "roccia", "casa")
             section_type: "center", "wedge", o "any"
             section_index: None per center, 0-5 per wedge
-            visual: dict con info visuali {'type': 'circle', 'color': [r,g,b], ...}
+            visual: dict con info visuali 
+                    {'type': 'image', 'path': '...', 'scale': 1.0, 'offset_x': 0, 'offset_y': 0}
+                    oppure {'type': 'circle', 'color': [r,g,b], 'radius': 10}
             blocking: se True, blocca movimento/generazione tiles
             z_offset: offset verticale per rendering (0.0 = base tile)
+            biome: bioma di appartenenza (solo props di questo bioma possono usarlo)
+            coloration: dict con pattern e colori 
+                       {'colors': [[r,g,b], ...], 'pattern': 'bricks', 
+                        'variation': {'type': 'random_shading', 'intensity': 0.3}}
         """
         self.prop_id = prop_id
         self.name = name
@@ -24,6 +36,8 @@ class Prop:
         self.visual = visual or {'type': 'circle', 'color': [100, 100, 100], 'radius': 10}
         self.blocking = blocking
         self.z_offset = z_offset
+        self.biome = biome
+        self.coloration = coloration
     
     def draw(self, screen, hex_tile, screen_x, screen_y):
         """Disegna il prop sulla sezione corretta dell'esagono
@@ -38,6 +52,12 @@ class Prop:
         
         # Applica z_offset
         cy -= int(self.z_offset * hex_tile.hex_size)
+        
+        # NUOVO: Applica offset personalizzato
+        offset_x = self.visual.get('offset_x', 0)
+        offset_y = self.visual.get('offset_y', 0)
+        cx += offset_x
+        cy += offset_y
         
         # ====== SUPPORTO IMMAGINI ======
         if self.visual['type'] == 'image':
@@ -70,6 +90,12 @@ class Prop:
                 pygame.draw.line(screen, (255, 255, 255), 
                                (int(cx)-10, int(cy)+10), 
                                (int(cx)+10, int(cy)-10), 2)
+        
+        # ====== PATTERN_ONLY (solo colorazione, no immagine) ======
+        elif self.visual['type'] == 'pattern_only':
+            # La colorazione viene applicata alla sezione dall'HexTile stesso
+            # Qui non disegniamo nulla (pattern già applicato sotto)
+            pass
         
         # ====== FORME GEOMETRICHE ======
         elif self.visual['type'] == 'circle':
@@ -145,7 +171,7 @@ class Prop:
             outer_radius = hex_tile.hex_size  # 1.0
             
             # Centro del trapezio = metà strada tra inner e outer
-            prop_radius = (inner_radius + outer_radius) *0.45
+            prop_radius = (inner_radius + outer_radius) * 0.45
             
             # Posizione
             cx = tile_center_x + prop_radius * math.cos(angle)
@@ -165,7 +191,7 @@ class Prop:
     
     def save_to_dict(self):
         """Serializza per salvare su file"""
-        return {
+        data = {
             'prop_id': self.prop_id,
             'name': self.name,
             'section_type': self.section_type,
@@ -174,6 +200,14 @@ class Prop:
             'blocking': self.blocking,
             'z_offset': self.z_offset
         }
+        
+        # NUOVO: Aggiungi bioma e coloration
+        if self.biome:
+            data['biome'] = self.biome
+        if self.coloration:
+            data['coloration'] = self.coloration
+        
+        return data
     
     @staticmethod
     def load_from_dict(data):
@@ -185,7 +219,9 @@ class Prop:
             section_index=data.get('section_index'),
             visual=data.get('visual'),
             blocking=data.get('blocking', True),
-            z_offset=data.get('z_offset', 0.0)
+            z_offset=data.get('z_offset', 0.0),
+            biome=data.get('biome'),  # NUOVO
+            coloration=data.get('coloration')  # NUOVO
         )
     
     def save_to_file(self, directory):

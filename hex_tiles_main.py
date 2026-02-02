@@ -2,12 +2,23 @@ import pygame
 import math
 from collections import defaultdict
 from prop_manager import PropManager
+from biomes import BIOMES, get_biome_from_description, get_random_color_from_biome
+from patterns import generate_pattern_texture
+import random
+
 
 class HexTile(pygame.Surface):
-    """Surface esagonale con palette/descrizione e supporto 2.5D con 7 sezioni"""
-    def __init__(self, size, palette_description, pointy_top=True, **kwargs):
+    """Surface esagonale con bioma, pattern e supporto 2.5D con 7 sezioni
+    
+    MODIFICHE AVANZATE:
+    - Ogni tile ha un bioma
+    - Ogni sezione (1 centro + 6 wedge) sceglie colore random dalla palette del bioma
+    - Se un prop con coloration è piazzato, la sezione cambia colore/pattern
+    """
+    def __init__(self, size, biome, pointy_top=True, **kwargs):
         self.hex_size = size
         self.pointy_top = pointy_top
+        self.biome = biome
         
         # Aumentiamo l'altezza per includere la banda laterale
         self.band_height = int(size / 4)
@@ -20,12 +31,95 @@ class HexTile(pygame.Surface):
             height = int(size * math.sqrt(3)) + self.band_height
         
         super().__init__((width, height), pygame.SRCALPHA, **kwargs)
-        self.palette = palette_description
         
         # Fattore di scala per l'esagono centrale (60% = 0.60)
         self.center_scale = 0.60
         
+        # NUOVO: Genera 7 colori random dalla palette del bioma
+        self._generate_section_colors()
+        
+        # NUOVO: Pattern cache per sezioni con colorazioni custom
+        self.section_patterns = {}  # {section_key: Surface}
+        
         self.fill((0, 0, 0, 0))
+    
+    def _generate_section_colors(self):
+        """Genera colori random per le 7 sezioni dal bioma"""
+        if self.biome not in BIOMES:
+            # Fallback: grigio
+            self.section_colors = [(150, 150, 150)] * 7
+            return
+        
+        biome_colors = BIOMES[self.biome]['colors']
+        
+        # Genera 7 colori random (1 centro + 6 wedge)
+        self.section_colors = [
+            random.choice(biome_colors) for _ in range(7)
+        ]
+    
+    def set_section_pattern(self, section_type, section_index, coloration_data):
+        """Imposta pattern custom per una sezione
+        
+        Args:
+            section_type: 'center' o 'wedge'
+            section_index: None per center, 0-5 per wedge
+            coloration_data: dict {'colors': [...], 'pattern': 'bricks', 'variation': {...}}
+        """
+        # Chiave per identificare la sezione
+        if section_type == 'center':
+            section_key = 'center'
+            section_idx = 0
+        else:
+            section_key = f'wedge_{section_index}'
+            section_idx = section_index + 1
+        
+        # Dimensione texture
+        if section_type == 'center':
+            size = (int(self.hex_size * 2 * 0.60), 
+                   int(self.hex_size * 2 * 0.60))
+        else:
+            size = (int(self.hex_size * 1.5), 
+                   int(self.hex_size * 1.0))
+        
+        # Genera pattern texture
+        pattern_texture = generate_pattern_texture(
+            colors=coloration_data['colors'],
+            pattern_type=coloration_data['pattern'],
+            variation_config=coloration_data['variation'],
+            section_shape=section_type,
+            size=size
+        )
+        
+        # Salva in cache
+        self.section_patterns[section_key] = pattern_texture
+        
+        # IMPORTANTE: Aggiorna anche il colore medio della sezione per la banda laterale
+        # Usa il primo colore come rappresentativo
+        if coloration_data['colors']:
+            self.section_colors[section_idx] = coloration_data['colors'][0]
+    
+    def remove_section_pattern(self, section_type, section_index):
+        """Rimuove pattern custom, ripristina colore random dal bioma
+        
+        Args:
+            section_type: 'center' o 'wedge'
+            section_index: None per center, 0-5 per wedge
+        """
+        # Chiave sezione
+        if section_type == 'center':
+            section_key = 'center'
+            section_idx = 0
+        else:
+            section_key = f'wedge_{section_index}'
+            section_idx = section_index + 1
+        
+        # Rimuovi pattern
+        if section_key in self.section_patterns:
+            del self.section_patterns[section_key]
+        
+        # Rigenera colore random per quella sezione
+        if self.biome in BIOMES:
+            self.section_colors[section_idx] = get_random_color_from_biome(self.biome)
     
     def get_hex_points_absolute(self, screen_x, screen_y, scale=1.0):
         """Ritorna i punti dell'esagono in coordinate assolute dello schermo
@@ -33,7 +127,7 @@ class HexTile(pygame.Surface):
         Args:
             screen_x: coordinata x sullo schermo
             screen_y: coordinata y sullo schermo
-            scale: fattore di scala (1.0 = dimensione normale, 0.35 = esagono centrale)
+            scale: fattore di scala (1.0 = dimensione normale, 0.60 = esagono centrale)
         """
         cx = screen_x + self.get_width() // 2
         cy = screen_y + self.hex_size
@@ -88,49 +182,107 @@ class HexTile(pygame.Surface):
         self._draw_top_face(screen, screen_x, screen_y)
     
     def _draw_top_face(self, screen, screen_x, screen_y):
-        """Disegna la faccia top suddivisa in esagono centrale + 6 trapezi"""
+        """Disegna la faccia top suddivisa in esagono centrale + 6 trapezi
+        
+        MODIFICATO: Usa section_colors random + applica pattern se presente
+        """
         # Calcola vertici esagono esterno (100%)
         outer_points = self.get_hex_points_absolute(screen_x, screen_y, scale=1.0)
         
-        # Calcola vertici esagono centrale (35%)
+        # Calcola vertici esagono centrale (60%)
         center_points = self.get_hex_points_absolute(screen_x, screen_y, scale=self.center_scale)
         
-        # Ottieni colori dalla palette
-        center_color = self.palette.get('center', (100, 100, 100))
-        section_colors = self.palette.get('sections', [(150, 150, 150)] * 6)
+        # Centro tile per pattern positioning
+        tile_cx = screen_x + self.get_width() // 2
+        tile_cy = screen_y + self.hex_size
         
         # Disegna i 6 trapezi radiali
         for i in range(6):
             trapezoid = self.get_trapezoid_points(center_points, outer_points, i)
-            section_color = section_colors[i] if i < len(section_colors) else (150, 150, 150)
+            section_color = self.section_colors[i + 1]  # +1 perché 0 è center
             
-            # Disegna il trapezio
+            # Disegna trapezio con colore base
             pygame.draw.polygon(screen, section_color, trapezoid)
+            
+            # NUOVO: Applica pattern se presente
+            pattern_key = f'wedge_{i}'
+            if pattern_key in self.section_patterns:
+                self._apply_pattern_to_section(
+                    screen, self.section_patterns[pattern_key],
+                    trapezoid, 'wedge', i, tile_cx, tile_cy
+                )
+            
             # Bordo nero per distinguere le sezioni
             pygame.draw.polygon(screen, (0, 0, 0), trapezoid, 1)
         
         # Disegna l'esagono centrale sopra i trapezi
+        center_color = self.section_colors[0]
         pygame.draw.polygon(screen, center_color, center_points)
+        
+        # NUOVO: Applica pattern center se presente
+        if 'center' in self.section_patterns:
+            self._apply_pattern_to_section(
+                screen, self.section_patterns['center'],
+                center_points, 'center', None, tile_cx, tile_cy
+            )
+        
         pygame.draw.polygon(screen, (0, 0, 0), center_points, 1)
         
         # Bordo esterno dell'intero esagono
         pygame.draw.polygon(screen, (0, 0, 0), outer_points, 2)
     
+    def _apply_pattern_to_section(self, screen, pattern_surface, section_points, 
+                                   section_type, section_index, tile_cx, tile_cy):
+        """Applica pattern texture alla sezione (con clipping)
+        
+        Args:
+            screen: superficie di destinazione
+            pattern_surface: texture pattern
+            section_points: punti del poligono sezione
+            section_type: 'center' o 'wedge'
+            section_index: None per center, 0-5 per wedge
+            tile_cx, tile_cy: centro tile
+        """
+        # Calcola centro della sezione
+        if section_type == 'center':
+            section_cx, section_cy = tile_cx, tile_cy
+        else:
+            # Centro wedge
+            angle_start = math.pi / 3 * section_index - math.pi / 6
+            angle_end = math.pi / 3 * (section_index + 1) - math.pi / 6
+            angle = (angle_start + angle_end) / 2
+            
+            inner_radius = self.hex_size * self.center_scale
+            outer_radius = self.hex_size
+            prop_radius = (inner_radius + outer_radius) * 0.45
+            
+            section_cx = tile_cx + prop_radius * math.cos(angle)
+            section_cy = tile_cy + prop_radius * math.sin(angle)
+        
+        # Posiziona pattern centrato
+        pattern_rect = pattern_surface.get_rect(center=(int(section_cx), int(section_cy)))
+        
+        # TODO: Clipping perfetto con mask (per ora blit diretto)
+        # Crea una surface con alpha per blend
+        temp_surface = pygame.Surface(pattern_surface.get_size(), pygame.SRCALPHA)
+        temp_surface.blit(pattern_surface, (0, 0))
+        
+        # Blit con blending
+        screen.blit(temp_surface, pattern_rect, special_flags=pygame.BLEND_RGBA_MULT)
+    
     def _draw_band(self, screen, screen_x, screen_y):
         """Disegna la banda laterale con colore più scuro (effetto ombra)
         Usa il colore medio delle sezioni per la banda"""
         # Calcola colore medio per la banda (usa le sections, non il centro)
-        section_colors = self.palette.get('sections', [(150, 150, 150)] * 6)
+        section_colors = self.section_colors[1:4]  # Usa le 3 sezioni frontali
         
-        # Media dei colori delle sezioni visibili (quelle sul fronte)
         if len(section_colors) >= 3:
-            # Usa le 3 sezioni frontali (0, 1, 2) per calcolare il colore medio
-            avg_r = sum(c[0] for c in section_colors[0:3]) // 3
-            avg_g = sum(c[1] for c in section_colors[0:3]) // 3
-            avg_b = sum(c[2] for c in section_colors[0:3]) // 3
+            avg_r = sum(c[0] for c in section_colors) // 3
+            avg_g = sum(c[1] for c in section_colors) // 3
+            avg_b = sum(c[2] for c in section_colors) // 3
             base_color = (avg_r, avg_g, avg_b)
         else:
-            base_color = section_colors[0] if section_colors else (150, 150, 150)
+            base_color = self.section_colors[1] if len(self.section_colors) > 1 else (150, 150, 150)
         
         hex_points = self.get_hex_points_absolute(screen_x, screen_y, scale=1.0)
         
@@ -194,7 +346,13 @@ class Camera:
 
 
 class HexGrid:
-    """Gestisce griglia esagonale 2.5D con sistema a LAYER basati su Z"""
+    """Gestisce griglia esagonale 2.5D con sistema a LAYER basati su Z
+    
+    MODIFICHE AVANZATE:
+    - Tiles hanno biomi random (futuro: da logica/descrizione)
+    - Props filtrati per bioma
+    - Pattern applicati alle sezioni quando si piazzano props
+    """
     
     DIRECTIONS_POINTY = [
         (1, 0),   # E (Est)
@@ -205,9 +363,8 @@ class HexGrid:
         (0, 1)    # SE (Sud-Est)
     ]
     
-    def __init__(self, hex_size, palettes, pointy_top=True):
+    def __init__(self, hex_size, pointy_top=True):
         self.hex_size = hex_size
-        self.palettes = palettes
         self.pointy_top = pointy_top
         self.tiles = {}
         self.current_pos = (0, 0, 0)
@@ -240,7 +397,11 @@ class HexGrid:
     
     def generate_tile(self, q, r, z):
         """Genera una tile alle coordinate (q, r, z) se non esiste già
-        MODIFICATO: Controlla collisioni con props bloccanti"""
+        
+        MODIFICATO: 
+        - Assegna bioma random (futuro: da logica/descrizione)
+        - Controlla collisioni con props bloccanti
+        """
         if (q, r, z) in self.tiles:
             return self.tiles[(q, r, z)]
     
@@ -249,31 +410,28 @@ class HexGrid:
             # Non generare tile se c'è un prop bloccante
             return None
     
-        palette_index = (abs(q) + abs(r) + abs(z)) % len(self.palettes)
-        palette = self.palettes[palette_index]
+        # NUOVO: Genera bioma random (FUTURO: da logica/descrizione)
+        # Placeholder per logica futura
+        biome = get_biome_from_description("")  # Per ora random
     
-        tile = HexTile(self.hex_size, palette, pointy_top=self.pointy_top)
+        tile = HexTile(self.hex_size, biome, pointy_top=self.pointy_top)
     
         self.tiles[(q, r, z)] = tile
         return tile
     
-    def get_topmost_accessible_tile(self, q, r, z_start):
-        """Trova la tile più alta accessibile sotto i props bloccanti"""
-        z = z_start
-        min_z = -10  # Limite inferiore arbitrario
-    
-        while self.prop_manager.check_collision(q, r, z) and z > min_z:
-            z -= 1
-    
-        if z <= min_z:
-            return None
-    
-        return (q, r, z)
-    
     def place_prop(self, prop_id):
-        """Piazza un prop sulla sezione correntemente selezionata"""
+        """Piazza un prop sulla sezione correntemente selezionata
+        
+        MODIFICATO: Applica anche la colorazione alla sezione del tile
+        """
         q, r, z = self.current_pos
         
+        # Verifica che tile esista
+        if (q, r, z) not in self.tiles:
+            print(f"✗ Tile ({q},{r},{z}) non esiste!")
+            return False
+        
+        # Aggiungi prop al PropManager
         result = self.prop_manager.add_prop(
             q, r, z,
             self.selected_section_type,
@@ -281,17 +439,36 @@ class HexGrid:
             prop_id
         )
         
-        if result:
-            print(f"✓ Piazzato {prop_id} su ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
-        else:
+        if not result:
             print(f"✗ Impossibile piazzare {prop_id}")
+            return False
         
-        return result
+        # NUOVO: Se prop ha coloration, applica pattern alla sezione
+        prop = result
+        if prop.coloration:
+            tile = self.tiles[(q, r, z)]
+            tile.set_section_pattern(
+                self.selected_section_type,
+                self.selected_section_index,
+                prop.coloration
+            )
+            print(f"✓ Pattern applicato alla sezione")
+        
+        print(f"✓ Piazzato {prop_id} su ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
+        return True
     
     def remove_prop(self):
-        """Rimuove prop dalla sezione correntemente selezionata"""
+        """Rimuove prop dalla sezione correntemente selezionata
+        
+        MODIFICATO: Rimuove anche la colorazione, rigenera colore random
+        """
         q, r, z = self.current_pos
         
+        # Verifica tile
+        if (q, r, z) not in self.tiles:
+            return False
+        
+        # Rimuovi prop
         removed = self.prop_manager.remove_prop(
             q, r, z,
             self.selected_section_type,
@@ -299,11 +476,17 @@ class HexGrid:
         )
         
         if removed:
-            print(f"✓ Rimosso prop da ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
+            # NUOVO: Rimuovi pattern e rigenera colore random
+            tile = self.tiles[(q, r, z)]
+            tile.remove_section_pattern(
+                self.selected_section_type,
+                self.selected_section_index
+            )
+            print(f"✓ Rimosso prop e pattern da ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
+            return True
         else:
             print(f"✗ Nessun prop da rimuovere")
-        
-        return removed
+            return False
     
     def cycle_section(self):
         """Cicla tra le 7 sezioni (center + 6 wedges)"""
@@ -336,6 +519,19 @@ class HexGrid:
             trapezoid = tile.get_trapezoid_points(center_points, outer_points, 
                                                   self.selected_section_index)
             pygame.draw.polygon(screen, (0, 255, 255), trapezoid, 3)
+    
+    def get_topmost_accessible_tile(self, q, r, z_start):
+        """Trova la tile più alta accessibile sotto i props bloccanti"""
+        z = z_start
+        min_z = -10  # Limite inferiore arbitrario
+    
+        while self.prop_manager.check_collision(q, r, z) and z > min_z:
+            z -= 1
+    
+        if z <= min_z:
+            return None
+    
+        return (q, r, z)
     
     def get_neighbor(self, q, r, direction_index):
         """Ottiene coordinate del vicino orizzontale nella direzione specificata"""
@@ -388,7 +584,10 @@ class HexGrid:
         return camera_x, camera_y
     
     def draw(self, screen, camera_x=0, camera_y=0):
-        """Disegna tiles e props con sistema a LAYER"""
+        """Disegna tiles e props con sistema a LAYER
+        
+        MODIFICATO: Evidenzia props della sezione corrente
+        """
         layers = defaultdict(list)
         for (q, r, z) in self.tiles.keys():
             layers[z].append((q, r, z))
@@ -417,15 +616,71 @@ class HexGrid:
                     # NUOVO: Evidenzia sezione selezionata
                     self._highlight_selected_section(screen, tile, screen_x, screen_y)
         
-            # NUOVO: Disegna props del layer
-            self.prop_manager.draw_props(screen, self, camera_x, camera_y, z_level)
+            # NUOVO: Disegna props del layer con evidenziazione
+            self._draw_props_with_highlight(screen, camera_x, camera_y, z_level)
+    
+    def _draw_props_with_highlight(self, screen, camera_x, camera_y, z_level):
+        """Disegna props con evidenziazione per sezione corrente"""
+        for key, prop in self.prop_manager.props.items():
+            q, r, z, sec_type, sec_idx = key
+            
+            # Filtra per layer
+            if z != z_level:
+                continue
+            
+            # Verifica tile esista
+            if (q, r, z) not in self.tiles:
+                continue
+            
+            tile = self.tiles[(q, r, z)]
+            x, y = self.axial_to_pixel(q, r, z)
+            
+            screen_x = int(x + camera_x)
+            screen_y = int(y + camera_y)
+            
+            # Disegna prop
+            prop.draw(screen, tile, screen_x, screen_y)
+            
+            # NUOVO: Evidenzia se sezione corrente + tile corrente
+            if ((q, r, z) == self.current_pos and 
+                sec_type == self.selected_section_type and
+                sec_idx == self.selected_section_index):
+                
+                # Overlay bianco semi-trasparente
+                if prop.visual.get('type') == 'image' and prop.visual.get('path'):
+                    try:
+                        # Carica immagine per calcolare rect
+                        img = pygame.image.load(prop.visual['path'])
+                        scale = prop.visual.get('scale', 1.0)
+                        if scale != 1.0:
+                            img = pygame.transform.scale(img, 
+                                (int(img.get_width() * scale), 
+                                 int(img.get_height() * scale)))
+                        
+                        # Calcola posizione
+                        cx, cy = prop._get_section_center(tile, screen_x, screen_y)
+                        cy -= int(prop.z_offset * tile.hex_size)
+                        cx += prop.visual.get('offset_x', 0)
+                        cy += prop.visual.get('offset_y', 0)
+                        
+                        img_rect = img.get_rect(center=(int(cx), int(cy)))
+                        
+                        # Overlay
+                        overlay = pygame.Surface(img_rect.size, pygame.SRCALPHA)
+                        overlay.fill((255, 255, 255, 80))
+                        screen.blit(overlay, img_rect.topleft)
+                    except:
+                        pass
 
 
 # ========== FUNZIONE HELPER ==========
-def _draw_prop_menu(screen, available_props, selected_index, prop_definitions, font):
-    """Disegna il menu di selezione props"""
-    menu_width = 400
-    menu_height = min(400, len(available_props) * 30 + 60)
+def _draw_prop_menu(screen, available_props, selected_index, prop_definitions, font, current_biome=None):
+    """Disegna il menu di selezione props
+    
+    MODIFICATO: Mostra bioma e filtra per bioma corrente
+    """
+    menu_width = 500
+    menu_height = min(500, len(available_props) * 35 + 100)
     menu_x = (screen.get_width() - menu_width) // 2
     menu_y = (screen.get_height() - menu_height) // 2
     
@@ -434,36 +689,44 @@ def _draw_prop_menu(screen, available_props, selected_index, prop_definitions, f
     pygame.draw.rect(screen, (50, 50, 50), menu_rect)
     pygame.draw.rect(screen, (255, 255, 255), menu_rect, 3)
     
-    # Titolo
-    title = font.render("SELEZIONA PROP", True, (255, 255, 255))
+    # Titolo con bioma
+    biome_text = f" ({current_biome})" if current_biome else ""
+    title = font.render(f"SELEZIONA PROP{biome_text}", True, (255, 255, 255))
     screen.blit(title, (menu_x + 20, menu_y + 15))
     
-    # Lista props
-    y = menu_y + 50
-    visible_start = max(0, selected_index - 10)
-    visible_end = min(len(available_props), visible_start + 12)
-    
-    for i in range(visible_start, visible_end):
-        prop_id = available_props[i]
-        prop = prop_definitions.get(prop_id)
+    if not available_props:
+        # Nessun prop disponibile
+        no_props_text = font.render("Nessun prop disponibile per questa sezione/bioma", 
+                                    True, (255, 100, 100))
+        screen.blit(no_props_text, (menu_x + 20, menu_y + 60))
+    else:
+        # Lista props
+        y = menu_y + 50
+        visible_start = max(0, selected_index - 10)
+        visible_end = min(len(available_props), visible_start + 12)
         
-        if i == selected_index:
-            # Evidenzia selezione
-            highlight_rect = pygame.Rect(menu_x + 10, y - 2, menu_width - 20, 26)
-            pygame.draw.rect(screen, (100, 100, 255), highlight_rect)
-        
-        # Testo
-        if prop:
-            text = f"{prop_id} - {prop.name}"
-            color = (255, 255, 0) if i == selected_index else (200, 200, 200)
-        else:
-            text = f"{prop_id} (errore)"
-            color = (255, 100, 100)
-        
-        surf = font.render(text, True, color)
-        screen.blit(surf, (menu_x + 20, y))
-        
-        y += 30
+        for i in range(visible_start, visible_end):
+            prop_id = available_props[i]
+            prop = prop_definitions.get(prop_id)
+            
+            if i == selected_index:
+                # Evidenzia selezione
+                highlight_rect = pygame.Rect(menu_x + 10, y - 2, menu_width - 20, 30)
+                pygame.draw.rect(screen, (100, 100, 255), highlight_rect)
+            
+            # Testo
+            if prop:
+                biome_name = BIOMES.get(prop.biome, {}).get('name', prop.biome) if prop.biome else "?"
+                text = f"{prop.name} ({biome_name})"
+                color = (255, 255, 0) if i == selected_index else (200, 200, 200)
+            else:
+                text = f"{prop_id} (errore)"
+                color = (255, 100, 100)
+            
+            surf = font.render(text[:60], True, color)
+            screen.blit(surf, (menu_x + 20, y))
+            
+            y += 35
     
     # Footer
     footer = font.render("↑/↓: Naviga | ENTER: Seleziona | ESC: Annulla", True, (180, 180, 180))
@@ -474,85 +737,10 @@ def _draw_prop_menu(screen, available_props, selected_index, prop_definitions, f
 def main():
     pygame.init()
     screen = pygame.display.set_mode((800, 600))
-    pygame.display.set_caption("Hex Tiles - 2.5D con 7 Sezioni + Props")
+    pygame.display.set_caption("Hex Tiles - 2.5D con Biomi, Pattern e Props")
     clock = pygame.time.Clock()
     
-    palettes = [
-        {
-            'name': 'Grass Mixed',
-            'center': (34, 139, 34),
-            'sections': [
-                (50, 155, 50),
-                (34, 139, 34),
-                (20, 120, 20),
-                (40, 150, 40),
-                (30, 130, 30),
-                (45, 145, 45)
-            ]
-        },
-        {
-            'name': 'Forest Varied',
-            'center': (0, 100, 0),
-            'sections': [
-                (10, 110, 10),
-                (0, 90, 0),
-                (5, 105, 5),
-                (0, 95, 0),
-                (15, 115, 15),
-                (0, 100, 0)
-            ]
-        },
-        {
-            'name': 'Water Deep',
-            'center': (30, 144, 255),
-            'sections': [
-                (40, 154, 255),
-                (25, 139, 245),
-                (35, 149, 250),
-                (30, 144, 255),
-                (20, 134, 240),
-                (45, 159, 255)
-            ]
-        },
-        {
-            'name': 'Mountain Rocky',
-            'center': (139, 137, 137),
-            'sections': [
-                (149, 147, 147),
-                (129, 127, 127),
-                (144, 142, 142),
-                (134, 132, 132),
-                (154, 152, 152),
-                (139, 137, 137)
-            ]
-        },
-        {
-            'name': 'Sand Beach',
-            'center': (238, 214, 175),
-            'sections': [
-                (248, 224, 185),
-                (228, 204, 165),
-                (243, 219, 180),
-                (233, 209, 170),
-                (253, 229, 190),
-                (238, 214, 175)
-            ]
-        },
-        {
-            'name': 'Mixed Terrain',
-            'center': (100, 200, 100),
-            'sections': [
-                (150, 150, 50),
-                (200, 100, 100),
-                (100, 100, 200),
-                (150, 200, 150),
-                (200, 200, 100),
-                (100, 150, 200)
-            ]
-        }
-    ]
-    
-    hex_grid = HexGrid(120, palettes, pointy_top=True)
+    hex_grid = HexGrid(120, pointy_top=True)
     camera = Camera(screen.get_width(), screen.get_height(), transition_time=0.25)
     
     initial_target = hex_grid.get_camera_target(screen.get_width(), screen.get_height())
@@ -561,9 +749,9 @@ def main():
     
     font = pygame.font.Font(None, 22)
     
-    # NUOVO: Menu props
+    # NUOVO: Menu props con filtro bioma
     show_prop_menu = False
-    available_props = list(hex_grid.prop_manager.prop_definitions.keys())
+    available_props = []
     selected_prop_index = 0
     
     running = True
@@ -584,9 +772,11 @@ def main():
                 # NUOVO: Gestione menu props
                 elif show_prop_menu:
                     if event.key == pygame.K_UP:
-                        selected_prop_index = (selected_prop_index - 1) % len(available_props)
+                        if available_props:
+                            selected_prop_index = (selected_prop_index - 1) % len(available_props)
                     elif event.key == pygame.K_DOWN:
-                        selected_prop_index = (selected_prop_index + 1) % len(available_props)
+                        if available_props:
+                            selected_prop_index = (selected_prop_index + 1) % len(available_props)
                     elif event.key == pygame.K_RETURN:
                         if available_props:
                             prop_id = available_props[selected_prop_index]
@@ -646,13 +836,33 @@ def main():
                         
                         hex_grid.generate_neighbors(q, r, z)
                     
-                    # NUOVO: Controlli props
+                    # NUOVO: Controlli props con filtro bioma
                     elif event.key == pygame.K_p:  # Piazza prop
+                        # Ottieni bioma tile corrente
+                        q, r, z = hex_grid.current_pos
+                        current_biome = None
+                        if (q, r, z) in hex_grid.tiles:
+                            current_biome = hex_grid.tiles[(q, r, z)].biome
+                        
+                        # FILTRO: mostra solo props compatibili con bioma E sezione corrente
+                        available_props = []
+                        for prop_id, prop_def in hex_grid.prop_manager.prop_definitions.items():
+                            # Deve matchare bioma
+                            if prop_def.biome != current_biome:
+                                continue
+                            
+                            # Deve matchare sezione
+                            if (prop_def.section_type == hex_grid.selected_section_type and
+                                prop_def.section_index == hex_grid.selected_section_index):
+                                available_props.append(prop_id)
+                        
                         if available_props:
                             show_prop_menu = True
-                            print("Menu props aperto - Usa ↑/↓ per selezionare, ENTER per piazzare")
+                            selected_prop_index = 0
+                            print(f"Menu props aperto - Bioma: {current_biome}, Sezione: {hex_grid.selected_section_type} {hex_grid.selected_section_index}")
                         else:
-                            print("Nessun prop disponibile! Usa prop_editor.py per crearli")
+                            print(f"Nessun prop disponibile per bioma '{current_biome}' e sezione '{hex_grid.selected_section_type} {hex_grid.selected_section_index}'")
+                            print("Usa prop_editor_advanced.py per creare props per questo bioma/sezione")
                     
                     elif event.key == pygame.K_r:  # Rimuovi prop
                         hex_grid.remove_prop()
@@ -660,12 +870,12 @@ def main():
                     elif event.key == pygame.K_TAB:  # Cicla sezioni
                         hex_grid.cycle_section()
                     
-                    # NUOVO: Salva/Carica props
+                    # NUOVO: Salva/Carica props + tiles (con biomi e pattern)
                     elif event.key == pygame.K_F5:  # Salva
-                        hex_grid.prop_manager.save_all_props()
+                        hex_grid.prop_manager.save_world_state(hex_grid)
                     
                     elif event.key == pygame.K_F9:  # Carica
-                        hex_grid.prop_manager.load_all_props()
+                        hex_grid.prop_manager.load_world_state(hex_grid)
         
         camera.update(dt)
         camera_x, camera_y = camera.get_offset()
@@ -675,7 +885,7 @@ def main():
         
         # MODIFICATO: Istruzioni con nuovi controlli
         instructions = [
-            "=== HEX TILES - 7 SEZIONI + PROPS ===",
+            "=== HEX TILES - BIOMI + PATTERN + PROPS ===",
             "Q: NW  E: NE",
             "A: W   D: E",
             "S: SW  X: SE",
@@ -685,17 +895,23 @@ def main():
             "",
             "SPACE: Genera vicini",
             "TAB: Cicla sezioni (center/wedges)",
-            "P: Piazza prop",
+            "P: Piazza prop (filtrato per bioma)",
             "R: Rimuovi prop",
             "",
-            "F5: Salva props | F9: Carica props",
+            "F5: Salva world | F9: Carica world",
             "ESC: Esci",
             "",
             f"Tiles: {len(hex_grid.tiles)} | Props: {len(hex_grid.prop_manager.props)}",
             f"Pos (q,r,z): {hex_grid.current_pos}",
-            f"Layers: {len(set(z for q,r,z in hex_grid.tiles.keys()))}",
-            f"Sezione: {hex_grid.selected_section_type} {hex_grid.selected_section_index or ''}"
         ]
+        
+        # Mostra bioma tile corrente
+        q, r, z = hex_grid.current_pos
+        if (q, r, z) in hex_grid.tiles:
+            biome_name = BIOMES.get(hex_grid.tiles[(q, r, z)].biome, {}).get('name', '?')
+            instructions.append(f"Bioma: {biome_name}")
+        
+        instructions.append(f"Sezione: {hex_grid.selected_section_type} {hex_grid.selected_section_index or ''}")
         
         for i, text in enumerate(instructions):
             surf = font.render(text, True, (0, 0, 0))
@@ -703,8 +919,12 @@ def main():
         
         # NUOVO: Disegna menu props se aperto
         if show_prop_menu:
+            current_biome = None
+            if (q, r, z) in hex_grid.tiles:
+                current_biome = hex_grid.tiles[(q, r, z)].biome
+            
             _draw_prop_menu(screen, available_props, selected_prop_index, 
-                          hex_grid.prop_manager.prop_definitions, font)
+                          hex_grid.prop_manager.prop_definitions, font, current_biome)
         
         pygame.display.flip()
         dt = clock.tick(120) / 1000.0
@@ -714,4 +934,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+

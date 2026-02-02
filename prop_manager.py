@@ -3,7 +3,11 @@ from pathlib import Path
 from prop import Prop
 
 class PropManager:
-    """Gestisce tutti i props nella griglia"""
+    """Gestisce tutti i props nella griglia
+    
+    MODIFICHE AVANZATE:
+    - Salvataggio/caricamento world state completo (tiles + biomi + props + pattern)
+    """
     
     def __init__(self, props_directory="props"):
         self.props = {}  # {(q, r, z, section_type, section_index): Prop}
@@ -51,9 +55,11 @@ class PropManager:
             name=template.name,
             section_type=section_type,
             section_index=section_index,
-            visual=template.visual.copy(),
+            visual=template.visual.copy() if template.visual else {},
             blocking=template.blocking,
-            z_offset=template.z_offset
+            z_offset=template.z_offset,
+            biome=template.biome,
+            coloration=template.coloration.copy() if template.coloration else None
         )
         
         key = (q, r, z, section_type, section_index)
@@ -119,8 +125,131 @@ class PropManager:
             
             prop.draw(screen, tile, screen_x, screen_y)
     
+    def save_world_state(self, hex_grid, filepath="world_state.json"):
+        """Salva stato completo del mondo: tiles (biomi, colori) + props (con pattern)
+        
+        NUOVO: Sistema di salvataggio avanzato
+        
+        Args:
+            hex_grid: istanza di HexGrid con tiles
+            filepath: percorso file di salvataggio
+        """
+        data = {
+            'tiles': [],
+            'props': []
+        }
+        
+        # Salva tiles con biomi e colori delle sezioni
+        for (q, r, z), tile in hex_grid.tiles.items():
+            tile_data = {
+                'coords': [q, r, z],
+                'biome': tile.biome,
+                'section_colors': tile.section_colors
+            }
+            data['tiles'].append(tile_data)
+        
+        # Salva props con offset e coloration
+        for key, prop in self.props.items():
+            q, r, z, sec_type, sec_idx = key
+            prop_data = {
+                'coords': [q, r, z],
+                'section_type': sec_type,
+                'section_index': sec_idx,
+                'prop_id': prop.prop_id
+            }
+            
+            # Aggiungi visual data (con offset)
+            if prop.visual:
+                prop_data['visual'] = prop.visual
+            
+            # Aggiungi coloration se presente
+            if prop.coloration:
+                prop_data['coloration'] = prop.coloration
+            
+            data['props'].append(prop_data)
+        
+        # Salva su file
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        
+        print(f"\n✓ Salvato world state: {filepath}")
+        print(f"   Tiles: {len(data['tiles'])}")
+        print(f"   Props: {len(data['props'])}")
+    
+    def load_world_state(self, hex_grid, filepath="world_state.json"):
+        """Carica stato completo del mondo
+        
+        NUOVO: Ripristina tiles con biomi, colori e pattern
+        
+        Args:
+            hex_grid: istanza di HexGrid da popolare
+            filepath: percorso file di caricamento
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Pulisci stato corrente
+            hex_grid.tiles.clear()
+            self.props.clear()
+            
+            # Carica tiles
+            from hex_tiles_main import HexTile
+            for tile_data in data.get('tiles', []):
+                q, r, z = tile_data['coords']
+                biome = tile_data['biome']
+                
+                # Crea tile con bioma
+                tile = HexTile(hex_grid.hex_size, biome, pointy_top=hex_grid.pointy_top)
+                
+                # Ripristina colori sezioni
+                tile.section_colors = tile_data.get('section_colors', tile.section_colors)
+                
+                hex_grid.tiles[(q, r, z)] = tile
+            
+            # Carica props
+            for prop_data in data.get('props', []):
+                q, r, z = prop_data['coords']
+                section_type = prop_data['section_type']
+                section_index = prop_data.get('section_index')
+                prop_id = prop_data['prop_id']
+                
+                # Aggiungi prop
+                prop = self.add_prop(q, r, z, section_type, section_index, prop_id)
+                
+                if prop:
+                    # Ripristina visual (con offset custom)
+                    if 'visual' in prop_data:
+                        prop.visual.update(prop_data['visual'])
+                    
+                    # Ripristina coloration
+                    if 'coloration' in prop_data:
+                        prop.coloration = prop_data['coloration']
+                        
+                        # IMPORTANTE: Riapplica pattern alla sezione
+                        if (q, r, z) in hex_grid.tiles:
+                            tile = hex_grid.tiles[(q, r, z)]
+                            tile.set_section_pattern(
+                                section_type,
+                                section_index,
+                                prop.coloration
+                            )
+            
+            print(f"\n✓ Caricato world state: {filepath}")
+            print(f"   Tiles: {len(data.get('tiles', []))}")
+            print(f"   Props: {len(data.get('props', []))}")
+            
+        except FileNotFoundError:
+            print(f"✗ File {filepath} non trovato")
+        except Exception as e:
+            print(f"✗ Errore caricando world state: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # ========== METODI LEGACY (compatibilità) ==========
+    
     def save_all_props(self, filepath="props_placement.json"):
-        """Salva tutti i props piazzati su file"""
+        """Salva tutti i props piazzati su file (LEGACY - usa save_world_state invece)"""
         data = []
         for key, prop in self.props.items():
             q, r, z, section_type, section_index = key
@@ -139,7 +268,7 @@ class PropManager:
         print(f"Salvati {len(data)} props in {filepath}")
     
     def load_all_props(self, filepath="props_placement.json"):
-        """Carica tutti i props piazzati da file"""
+        """Carica tutti i props piazzati da file (LEGACY)"""
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 data = json.load(f)
