@@ -1,0 +1,11 @@
+c Esempio formula 3-SAT per seed mappa
+c 5 variabili, 8 clausole
+p cnf 5 8
+1 2 -3 0
+-1 3 4 0
+2 -3 5 0
+-2 4 -5 0
+1 -4 5 0
+-1 2 3 0
+3 4 -5 0
+-2 -3 4 0

@@ -94,7 +94,7 @@ class Prop:
         # ====== PATTERN_ONLY (solo colorazione, no immagine) ======
         elif self.visual['type'] == 'pattern_only':
             # La colorazione viene applicata alla sezione dall'HexTile stesso
-            # Qui non disegniamo nulla (pattern già applicato sotto)
+            # Qui non disegniamo nulla (pattern giÃ  applicato sotto)
             pass
         
         # ====== FORME GEOMETRICHE ======
@@ -138,7 +138,7 @@ class Prop:
                 pygame.draw.polygon(screen, (255, 0, 0), offset_points, 2)
     
     def _get_section_center(self, hex_tile, screen_x, screen_y):
-        """Calcola il centro della sezione su cui è posizionato il prop"""
+        """Calcola il centro della sezione su cui Ã¨ posizionato il prop"""
         if self.section_type == "center":
             # Centro dell'esagono centrale
             cx = screen_x + hex_tile.get_width() // 2
@@ -155,7 +155,7 @@ class Prop:
             # IMPORTANTE: Angolo della wedge deve corrispondere ai vertici!
             # Nel codice HexTile i vertici usano: angle = pi/3 * i - pi/6
             # I trapezi sono "tra" i vertici, quindi il centro del trapezio
-            # è a metà tra due vertici consecutivi
+            # Ã¨ a metÃ  tra due vertici consecutivi
             if hex_tile.pointy_top:
                 # Angolo del vertice START del trapezio
                 angle_start = math.pi / 3 * self.section_index - math.pi / 6
@@ -170,7 +170,7 @@ class Prop:
             inner_radius = hex_tile.hex_size * hex_tile.center_scale  # 0.60
             outer_radius = hex_tile.hex_size  # 1.0
             
-            # Centro del trapezio = metà strada tra inner e outer
+            # Centro del trapezio = metÃ  strada tra inner e outer
             prop_radius = (inner_radius + outer_radius) * 0.45
             
             # Posizione

@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 # ========== PATTERN DISPONIBILI ==========
-# Questo sarà espanso con file di istruzioni che l'utente fornirà
+# Questo sarÃ  espanso con file di istruzioni che l'utente fornirÃ 
 
 PATTERN_DEFINITIONS = {
     'solid': {
@@ -133,12 +133,12 @@ def interpolate_color(color1, color2, t):
 
 # ========== GENERATORI PATTERN ==========
 
-def draw_bricks_pattern(surface, colors, variation_config):
-    """Pattern mattoni rettangolari"""
+def draw_bricks_pattern(surface, colors, variation_config, scale_factor=1.0):
+    """Pattern mattoni rettangolari con scala adattata"""
     width, height = surface.get_size()
-    brick_width = 16
-    brick_height = 8
-    mortar_size = 2
+    brick_width = int(16 * scale_factor)
+    brick_height = int(8 * scale_factor)
+    mortar_size = max(1, int(2 * scale_factor))
     
     y = 0
     row = 0
@@ -172,10 +172,10 @@ def draw_bricks_pattern(surface, colors, variation_config):
         row += 1
 
 
-def draw_cobblestone_pattern(surface, colors, variation_config):
-    """Pattern pietrini rotondi"""
+def draw_cobblestone_pattern(surface, colors, variation_config, scale_factor=1.0):
+    """Pattern pietrini rotondi con scala adattata"""
     width, height = surface.get_size()
-    stone_size = 8
+    stone_size = int(8 * scale_factor)
     
     for y in range(0, height, stone_size):
         for x in range(0, width, stone_size):
@@ -198,20 +198,21 @@ def draw_cobblestone_pattern(surface, colors, variation_config):
             pygame.draw.circle(surface, darker, (pos_x, pos_y), radius, 1)
 
 
-def draw_organic_scatter_pattern(surface, colors, variation_config):
-    """Pattern blob organici (foresta/erba)"""
+def draw_organic_scatter_pattern(surface, colors, variation_config, scale_factor=1.0):
+    """Pattern blob organici (foresta/erba) con scala adattata"""
     width, height = surface.get_size()
     
-    # Genera blob casuali
-    num_blobs = (width * height) // 80
+    # Genera blob casuali - scala il numero in base alla dimensione
+    base_density = 80
+    num_blobs = int((width * height) / (base_density * scale_factor))
     
     for _ in range(num_blobs):
         x = random.randint(0, width)
         y = random.randint(0, height)
         
-        # Forma organica (ellisse con rotazione random)
-        w = random.randint(8, 20)
-        h = random.randint(6, 15)
+        # Forma organica (ellisse con rotazione random) - scala dimensioni
+        w = int(random.randint(8, 20) * scale_factor)
+        h = int(random.randint(6, 15) * scale_factor)
         
         base_color = random.choice(colors)
         color = apply_color_variation(base_color, variation_config)
@@ -221,11 +222,11 @@ def draw_organic_scatter_pattern(surface, colors, variation_config):
         pygame.draw.ellipse(surface, color, rect)
 
 
-def draw_tiles_pattern(surface, colors, variation_config):
-    """Pattern piastrelle quadrate"""
+def draw_tiles_pattern(surface, colors, variation_config, scale_factor=1.0):
+    """Pattern piastrelle quadrate con scala adattata"""
     width, height = surface.get_size()
-    tile_size = 12
-    grout_size = 2
+    tile_size = int(12 * scale_factor)
+    grout_size = max(1, int(2 * scale_factor))
     
     for y in range(0, height, tile_size):
         for x in range(0, width, tile_size):
@@ -242,42 +243,45 @@ def draw_tiles_pattern(surface, colors, variation_config):
                            (rect.right, rect.top), 1)
 
 
-def draw_sand_ripples_pattern(surface, colors, variation_config):
-    """Pattern onde sabbia parallele"""
+def draw_sand_ripples_pattern(surface, colors, variation_config, scale_factor=1.0):
+    """Pattern onde sabbia parallele con scala adattata"""
     width, height = surface.get_size()
-    wave_height = 6
+    wave_height = int(6 * scale_factor)
     
     for y in range(0, height, wave_height):
         base_color = random.choice(colors)
         color = apply_color_variation(base_color, variation_config)
         
-        # Onda sinusoidale
+        # Onda sinusoidale - adatta frequenza alla scala
         points = []
+        wave_freq = 0.1 / scale_factor  # Frequenza inversamente proporzionale
         for x in range(width):
-            wave_y = y + int(math.sin(x * 0.1) * 2)
+            wave_y = y + int(math.sin(x * wave_freq) * 2 * scale_factor)
             points.append((x, wave_y))
         
         if len(points) > 1:
-            pygame.draw.lines(surface, color, False, points, 2)
+            line_width = max(1, int(2 * scale_factor))
+            pygame.draw.lines(surface, color, False, points, line_width)
 
 
-def draw_rocky_pattern(surface, colors, variation_config):
-    """Pattern rocce frammentate"""
+def draw_rocky_pattern(surface, colors, variation_config, scale_factor=1.0):
+    """Pattern rocce frammentate con scala adattata"""
     width, height = surface.get_size()
     
-    # Genera poligoni irregolari
-    num_rocks = (width * height) // 150
+    # Genera poligoni irregolari - scala densità
+    base_density = 150
+    num_rocks = int((width * height) / (base_density * scale_factor))
     
     for _ in range(num_rocks):
         cx = random.randint(0, width)
         cy = random.randint(0, height)
         
-        # Poligono irregolare (4-6 lati)
+        # Poligono irregolare (4-6 lati) - scala dimensioni
         num_sides = random.randint(4, 6)
         points = []
         for i in range(num_sides):
             angle = (2 * math.pi * i) / num_sides + random.uniform(-0.3, 0.3)
-            radius = random.randint(5, 15)
+            radius = int(random.randint(5, 15) * scale_factor)
             x = cx + int(math.cos(angle) * radius)
             y = cy + int(math.sin(angle) * radius)
             points.append((x, y))
@@ -356,30 +360,36 @@ def generate_pattern_texture(colors, pattern_type, variation_config, section_sha
     # 1. Genera mesh base colori
     generate_color_mesh(surface, colors, mesh_type='gradient')
     
-    # 2. Applica pattern overlay (se non solid)
+    # 2. ADATTA SCALA PATTERN per forma wedge (trapezi sono più stretti/allungati)
+    scale_factor = 1.0
+    if section_shape == 'wedge':
+        # Wedge sono più strette → usa elementi più piccoli per evitare compressione
+        scale_factor = 0.6  # 60% delle dimensioni normali
+    
+    # 3. Applica pattern overlay (se non solid)
     if pattern_type != 'solid':
         # Crea surface trasparente per pattern
         pattern_surface = pygame.Surface((width, height), pygame.SRCALPHA)
         pattern_surface.fill((0, 0, 0, 0))
         
-        # Disegna pattern
+        # Disegna pattern con scala adattata
         if pattern_type == 'bricks':
-            draw_bricks_pattern(pattern_surface, colors, variation_config)
+            draw_bricks_pattern(pattern_surface, colors, variation_config, scale_factor)
         elif pattern_type == 'cobblestone':
-            draw_cobblestone_pattern(pattern_surface, colors, variation_config)
+            draw_cobblestone_pattern(pattern_surface, colors, variation_config, scale_factor)
         elif pattern_type == 'organic_scatter':
-            draw_organic_scatter_pattern(pattern_surface, colors, variation_config)
+            draw_organic_scatter_pattern(pattern_surface, colors, variation_config, scale_factor)
         elif pattern_type == 'tiles':
-            draw_tiles_pattern(pattern_surface, colors, variation_config)
+            draw_tiles_pattern(pattern_surface, colors, variation_config, scale_factor)
         elif pattern_type == 'sand_ripples':
-            draw_sand_ripples_pattern(pattern_surface, colors, variation_config)
+            draw_sand_ripples_pattern(pattern_surface, colors, variation_config, scale_factor)
         elif pattern_type == 'rocky':
-            draw_rocky_pattern(pattern_surface, colors, variation_config)
+            draw_rocky_pattern(pattern_surface, colors, variation_config, scale_factor)
         
         # Blend pattern su mesh base
         surface.blit(pattern_surface, (0, 0))
     
-    # 3. Applica noise overlay se richiesto
+    # 4. Applica noise overlay se richiesto
     if variation_config['type'] in ['noise_overlay', 'combo']:
         apply_noise_overlay(surface, variation_config.get('intensity', 0.15))
     
@@ -392,7 +402,7 @@ def load_pattern_instructions(filepath='pattern_instructions.txt'):
     """
     FUTURO: Carica istruzioni pattern da file
     
-    Il file conterrà istruzioni per nuovi pattern che l'utente vorrà aggiungere.
+    Il file conterrÃ  istruzioni per nuovi pattern che l'utente vorrÃ  aggiungere.
     Formato esempio:
     
     [PATTERN: custom_pattern_01]

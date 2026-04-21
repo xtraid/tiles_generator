@@ -13,7 +13,7 @@ class HexTile(pygame.Surface):
     MODIFICHE AVANZATE:
     - Ogni tile ha un bioma
     - Ogni sezione (1 centro + 6 wedge) sceglie colore random dalla palette del bioma
-    - Se un prop con coloration è piazzato, la sezione cambia colore/pattern
+    - Se un prop con coloration Ã¨ piazzato, la sezione cambia colore/pattern
     """
     def __init__(self, size, biome, pointy_top=True, **kwargs):
         self.hex_size = size
@@ -173,7 +173,7 @@ class HexTile(pygame.Surface):
         return trapezoid
     
     def draw_3d(self, screen, screen_x, screen_y):
-        """Disegna il tile in modalità 2.5D con 7 sezioni: prima banda laterale, poi faccia top"""
+        """Disegna il tile in modalitÃ  2.5D con 7 sezioni: prima banda laterale, poi faccia top"""
         # 1. Disegna la banda laterale
         if self.band_height > 0:
             self._draw_band(screen, screen_x, screen_y)
@@ -199,7 +199,7 @@ class HexTile(pygame.Surface):
         # Disegna i 6 trapezi radiali
         for i in range(6):
             trapezoid = self.get_trapezoid_points(center_points, outer_points, i)
-            section_color = self.section_colors[i + 1]  # +1 perché 0 è center
+            section_color = self.section_colors[i + 1]  # +1 perchÃ© 0 Ã¨ center
             
             # Disegna trapezio con colore base
             pygame.draw.polygon(screen, section_color, trapezoid)
@@ -259,19 +259,34 @@ class HexTile(pygame.Surface):
             section_cx = tile_cx + prop_radius * math.cos(angle)
             section_cy = tile_cy + prop_radius * math.sin(angle)
         
-        # Posiziona pattern centrato
-        pattern_rect = pattern_surface.get_rect(center=(int(section_cx), int(section_cy)))
-        
-        # TODO: Clipping perfetto con mask (per ora blit diretto)
-        # Crea una surface con alpha per blend
-        temp_surface = pygame.Surface(pattern_surface.get_size(), pygame.SRCALPHA)
-        temp_surface.blit(pattern_surface, (0, 0))
-        
-        # Blit con blending
-        screen.blit(temp_surface, pattern_rect, special_flags=pygame.BLEND_RGBA_MULT)
+        # Calcola bounding box del poligono
+        xs = [p[0] for p in section_points]
+        ys = [p[1] for p in section_points]
+        bbox_x = int(min(xs))
+        bbox_y = int(min(ys))
+        bbox_w = int(max(xs)) - bbox_x + 1
+        bbox_h = int(max(ys)) - bbox_y + 1
+
+        if bbox_w <= 0 or bbox_h <= 0:
+            return
+
+        # Crea maschera poligono (bianco dentro, trasparente fuori)
+        mask_surface = pygame.Surface((bbox_w, bbox_h), pygame.SRCALPHA)
+        mask_surface.fill((0, 0, 0, 0))
+        local_points = [(p[0] - bbox_x, p[1] - bbox_y) for p in section_points]
+        pygame.draw.polygon(mask_surface, (255, 255, 255, 255), local_points)
+
+        # Centra il pattern sulla sezione e blittalo sulla maschera
+        pattern_rect = pattern_surface.get_rect(
+            center=(int(section_cx) - bbox_x, int(section_cy) - bbox_y)
+        )
+        mask_surface.blit(pattern_surface, pattern_rect, special_flags=pygame.BLEND_RGBA_MULT)
+
+        # Blit risultato clippato sullo schermo
+        screen.blit(mask_surface, (bbox_x, bbox_y))
     
     def _draw_band(self, screen, screen_x, screen_y):
-        """Disegna la banda laterale con colore più scuro (effetto ombra)
+        """Disegna la banda laterale con colore piÃ¹ scuro (effetto ombra)
         Usa il colore medio delle sezioni per la banda"""
         # Calcola colore medio per la banda (usa le sections, non il centro)
         section_colors = self.section_colors[1:4]  # Usa le 3 sezioni frontali
@@ -396,7 +411,7 @@ class HexGrid:
         return x, y
     
     def generate_tile(self, q, r, z):
-        """Genera una tile alle coordinate (q, r, z) se non esiste già
+        """Genera una tile alle coordinate (q, r, z) se non esiste giÃ 
         
         MODIFICATO: 
         - Assegna bioma random (futuro: da logica/descrizione)
@@ -407,7 +422,7 @@ class HexGrid:
     
         # NUOVO: Controlla se ci sono props bloccanti
         if self.prop_manager.check_collision(q, r, z):
-            # Non generare tile se c'è un prop bloccante
+            # Non generare tile se c'Ã¨ un prop bloccante
             return None
     
         # NUOVO: Genera bioma random (FUTURO: da logica/descrizione)
@@ -428,7 +443,7 @@ class HexGrid:
         
         # Verifica che tile esista
         if (q, r, z) not in self.tiles:
-            print(f"✗ Tile ({q},{r},{z}) non esiste!")
+            print(f"âœ— Tile ({q},{r},{z}) non esiste!")
             return False
         
         # Aggiungi prop al PropManager
@@ -440,7 +455,7 @@ class HexGrid:
         )
         
         if not result:
-            print(f"✗ Impossibile piazzare {prop_id}")
+            print(f"âœ— Impossibile piazzare {prop_id}")
             return False
         
         # NUOVO: Se prop ha coloration, applica pattern alla sezione
@@ -452,9 +467,9 @@ class HexGrid:
                 self.selected_section_index,
                 prop.coloration
             )
-            print(f"✓ Pattern applicato alla sezione")
+            print(f"âœ“ Pattern applicato alla sezione")
         
-        print(f"✓ Piazzato {prop_id} su ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
+        print(f"âœ“ Piazzato {prop_id} su ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
         return True
     
     def remove_prop(self):
@@ -482,10 +497,10 @@ class HexGrid:
                 self.selected_section_type,
                 self.selected_section_index
             )
-            print(f"✓ Rimosso prop e pattern da ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
+            print(f"âœ“ Rimosso prop e pattern da ({q},{r},{z}) - {self.selected_section_type} {self.selected_section_index}")
             return True
         else:
-            print(f"✗ Nessun prop da rimuovere")
+            print(f"âœ— Nessun prop da rimuovere")
             return False
     
     def cycle_section(self):
@@ -521,7 +536,7 @@ class HexGrid:
             pygame.draw.polygon(screen, (0, 255, 255), trapezoid, 3)
     
     def get_topmost_accessible_tile(self, q, r, z_start):
-        """Trova la tile più alta accessibile sotto i props bloccanti"""
+        """Trova la tile piÃ¹ alta accessibile sotto i props bloccanti"""
         z = z_start
         min_z = -10  # Limite inferiore arbitrario
     
@@ -729,7 +744,7 @@ def _draw_prop_menu(screen, available_props, selected_index, prop_definitions, f
             y += 35
     
     # Footer
-    footer = font.render("↑/↓: Naviga | ENTER: Seleziona | ESC: Annulla", True, (180, 180, 180))
+    footer = font.render("â†‘/â†“: Naviga | ENTER: Seleziona | ESC: Annulla", True, (180, 180, 180))
     screen.blit(footer, (menu_x + 20, menu_y + menu_height - 35))
 
 
@@ -783,7 +798,7 @@ def main():
                             hex_grid.place_prop(prop_id)
                         show_prop_menu = False
                 
-                # Controlli normali (quando menu non è aperto)
+                # Controlli normali (quando menu non Ã¨ aperto)
                 elif not show_prop_menu:
                     # Movimento orizzontale
                     if event.key == pygame.K_q:  # NW
@@ -817,7 +832,7 @@ def main():
                         target = hex_grid.get_camera_target(screen.get_width(), screen.get_height())
                         camera.set_target(*target)
                     
-                    elif event.key == pygame.K_z:  # Giù (z-1)
+                    elif event.key == pygame.K_z:  # GiÃ¹ (z-1)
                         hex_grid.move_down()
                         target = hex_grid.get_camera_target(screen.get_width(), screen.get_height())
                         camera.set_target(*target)

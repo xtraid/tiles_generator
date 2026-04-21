@@ -1,0 +1,419 @@
+% ============================================================
+%  Modello 1 — Indecidibilità del Tiling Esagonale
+%  Progetto tiles_generator — CCL 2024/25
+% ============================================================
+
+\documentclass[12pt, a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[italian]{babel}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric}
+\usepackage{caption}
+\geometry{margin=2.5cm}
+
+\newtheorem{definizione}{Definizione}
+\newtheorem{teorema}{Teorema}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollario}{Corollario}
+
+% shorthand
+\newcommand{\blank}{\sqcup}
+\newcommand{\moveR}{\!\rightarrow\!}
+\newcommand{\moveL}{\!\leftarrow\!}
+\newcommand{\edgeE}{c_{\mathrm{E}}}
+\newcommand{\edgeSE}{c_{\mathrm{SE}}}
+\newcommand{\edgeSW}{c_{\mathrm{SW}}}
+\newcommand{\edgeW}{c_{\mathrm{W}}}
+\newcommand{\edgeNW}{c_{\mathrm{NW}}}
+\newcommand{\edgeNE}{c_{\mathrm{NE}}}
+
+\begin{document}
+
+% ============================================================
+\section{Modello 1: Indecidibilità del Problema di Tiling Esagonale}
+% ============================================================
+
+\subsection{Definizioni}
+
+\begin{definizione}[Tessera Wang Esagonale]
+Una \emph{tessera Wang esagonale} è una sestupla
+\[
+  t = (\edgeE,\, \edgeSE,\, \edgeSW,\, \edgeW,\, \edgeNW,\, \edgeNE) \;\in\; \mathcal{C}^6
+\]
+dove $\mathcal{C}$ è un insieme finito di \emph{colori} e ogni componente indica il colore
+del lato corrispondente, secondo la numerazione seguente:
+\begin{center}
+\begin{tikzpicture}[scale=1.1]
+  \node[draw, regular polygon, regular polygon sides=6,
+        minimum size=2.2cm, rotate=0] (h) at (0,0) {};
+  % labels on sides
+  \node at ( 1.1, 0)    {\small E};
+  \node at ( 0.55, 0.95) {\small NE};
+  \node at (-0.55, 0.95) {\small NW};
+  \node at (-1.1, 0)    {\small W};
+  \node at (-0.55,-0.95) {\small SW};
+  \node at ( 0.55,-0.95) {\small SE};
+\end{tikzpicture}
+\end{center}
+Le tessere \emph{non} possono essere ruotate né riflesse.
+\end{definizione}
+
+\begin{definizione}[Reticolo Esagonale]
+Il \emph{reticolo esagonale} $\mathbb{H}$ è l'insieme $\mathbb{Z}^2$ con coordinate assiali
+$(q, r)$, dove i sei vicini di una cella $(q, r)$ sono:
+\[
+\begin{array}{ll}
+  \mathrm{E}:   (q+1,\, r) &
+  \mathrm{W}:   (q-1,\, r) \\[3pt]
+  \mathrm{NE}: (q+1,\, r-1) &
+  \mathrm{NW}: (q,\, r-1) \\[3pt]
+  \mathrm{SE}: (q,\, r+1) &
+  \mathrm{SW}: (q-1,\, r+1)
+\end{array}
+\]
+I lati \textbf{E--W} sono i lati direzionali orizzontali;
+i lati \textbf{NE--SW} e \textbf{NW--SE} sono le due coppie diagonali.
+\end{definizione}
+
+\begin{definizione}[Condizione di Matching]
+Due tessere adiacenti $t$ in $(q,r)$ e $t'$ nel vicino nella direzione $d$ sono
+\emph{compatibili} se il colore del lato $d$ di $t$ coincide con il colore del lato
+opposto $\bar{d}$ di $t'$:
+\[
+  \edgeE(q,r)   = \edgeW(q+1,r), \quad
+  \edgeSE(q,r)  = \edgeNW(q,r+1), \quad
+  \edgeSW(q,r)  = \edgeNE(q-1,r+1).
+\]
+\end{definizione}
+
+\begin{definizione}[Problema di Tiling Esagonale — $\mathrm{HEX\text{-}TILE}$]
+Dato un insieme finito $T \subset \mathcal{C}^6$ di tipi di tessere esagonali,
+il \emph{problema di tiling esagonale} chiede:
+\[
+  \exists \text{ funzione } \tau : \mathbb{H} \to T
+  \text{ tale che ogni coppia di celle adiacenti soddisfa la condizione di matching?}
+\]
+\end{definizione}
+
+% ============================================================
+\subsection{Teorema di Indecidibilità}
+% ============================================================
+
+\begin{teorema}
+\label{thm:undec}
+$\mathrm{HEX\text{-}TILE}$ è indecidibile.
+\end{teorema}
+
+\begin{proof}
+Riduciamo il \emph{Problema della Fermata} (Halting Problem) a $\mathrm{HEX\text{-}TILE}$.
+Sia $M = (Q, \Gamma, \delta, q_0, q_{\mathrm{halt}})$ una macchina di Turing deterministica
+con nastro bi-infinito. Costruiamo un insieme finito $T_M$ di tessere esagonali tale che:
+\[
+  T_M \text{ tila } \mathbb{H}
+  \quad\iff\quad
+  M \text{ non si ferma mai su input vuoto.}
+\]
+
+\paragraph{Interpretazione geometrica.}
+Usiamo il reticolo esagonale con la seguente corrispondenza:
+\begin{itemize}
+  \item la coordinata $q \in \mathbb{Z}$ rappresenta la \textbf{posizione sul nastro};
+  \item la coordinata $r \in \mathbb{Z}$ rappresenta il \textbf{passo di computazione}
+        ($r$ crescente $=$ avanzamento nel tempo);
+  \item la cella $(q, r)$ codifica \emph{lo stato della cella nastro $q$ al passo $r$}.
+\end{itemize}
+Le coppie di lati hanno quindi il seguente ruolo:
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{tabular}{lll}
+\hline
+Coppia & Vicino & Ruolo \\
+\hline
+NW / SE & $(q, r-1)$ / $(q, r+1)$ & Propagazione temporale (stessa cella, passo adiacente) \\
+E / W   & $(q+1, r)$ / $(q-1, r)$ & Segnale di movimento testina (stessa riga temporale) \\
+NE / SW & $(q+1,r-1)$ / $(q-1,r+1)$ & Ausiliari (non utilizzati, fissati a $\bot$) \\
+\hline
+\end{tabular}
+\end{center}
+
+\paragraph{Insieme dei colori.}
+Definiamo:
+\[
+  \mathcal{C} \;=\; \Gamma
+    \;\cup\; (Q \times \Gamma)
+    \;\cup\; \{\,(q, \moveR)\,:\, q \in Q\,\}
+    \;\cup\; \{\,(q, \moveL)\,:\, q \in Q\,\}
+    \;\cup\; \{\bot\}
+\]
+dove:
+\begin{itemize}
+  \item $a \in \Gamma$ indica che la cella nastro contiene il simbolo $a$, senza testina;
+  \item $(q, a) \in Q \times \Gamma$ indica che la testina è presente in stato $q$, con simbolo $a$;
+  \item $(q, \moveR)$ e $(q, \moveL)$ sono \emph{segnali di movimento} che attraversano il confine
+        tra due celle adiacenti nella stessa riga temporale;
+  \item $\bot$ è il colore neutro (nessun segnale).
+\end{itemize}
+
+\paragraph{Costruzione di $T_M$.}
+Le tessere $T_M$ sono i seguenti cinque schemi parametrici.
+Ogni tessera è scritta come $(\edgeE,\, \edgeSE,\, \edgeSW,\, \edgeW,\, \edgeNW,\, \edgeNE)$.
+
+\medskip
+\noindent\textbf{Tipo T1 — Cella di sfondo} (nessuna testina).
+Per ogni $a \in \Gamma$:
+\[
+  T_1(a) \;=\; (\bot,\; a,\; \bot,\; \bot,\; a,\; \bot)
+\]
+Semantica: la cella contiene il simbolo $a$ sia al passo $r-1$ (lato NW) sia al passo $r$
+(lato SE); nessun segnale di movimento.
+
+\medskip
+\noindent\textbf{Tipo T2 — Testina parte a destra.}
+Per ogni $(q_s, a) \in Q \times \Gamma$ con $\delta(q_s, a) = (q', a', R)$:
+\[
+  T_2(q_s, a) \;=\; \bigl((q', \moveR),\; a',\; \bot,\; \bot,\; (q_s, a),\; \bot\bigr)
+\]
+Semantica: la testina era qui al passo $r-1$ in stato $q_s$, ha scritto $a'$ e invia il
+segnale $(q', \moveR)$ verso la cella a destra (lato E).
+
+\medskip
+\noindent\textbf{Tipo T3 — Testina parte a sinistra.}
+Per ogni $(q_s, a) \in Q \times \Gamma$ con $\delta(q_s, a) = (q', a', L)$:
+\[
+  T_3(q_s, a) \;=\; \bigl(\bot,\; a',\; \bot,\; (q', \moveL),\; (q_s, a),\; \bot\bigr)
+\]
+Semantica: come T2, ma il segnale $(q', \moveL)$ è emesso verso sinistra (lato W).
+
+\medskip
+\noindent\textbf{Tipo T4 — Testina arriva da sinistra.}
+Per ogni $q' \in Q$ e $a \in \Gamma$:
+\[
+  T_4(q', a) \;=\; \bigl(\bot,\; (q', a),\; \bot,\; (q', \moveR),\; a,\; \bot\bigr)
+\]
+Semantica: il segnale $(q', \moveR)$ arriva dal lato W; la cella conteneva $a$ al passo
+$r-1$ (NW); la testina è ora qui al passo $r$ (lato SE riporta $(q', a)$).
+
+\medskip
+\noindent\textbf{Tipo T5 — Testina arriva da destra.}
+Per ogni $q' \in Q$ e $a \in \Gamma$:
+\[
+  T_5(q', a) \;=\; \bigl((q', \moveL),\; (q', a),\; \bot,\; \bot,\; a,\; \bot\bigr)
+\]
+Semantica: simmetrico a T4; il segnale $(q', \moveL)$ arriva dal lato E.
+
+\medskip
+In totale, $|T_M| = |\Gamma| + 2|Q||\Gamma| + 2|Q||\Gamma| = |\Gamma|(1 + 4|Q|) = O(|Q||\Gamma|)$.
+
+\paragraph{Correttezza.}
+
+\begin{lemma}
+\label{lem:strip}
+Per ogni $n \geq 0$, esiste un tiling valido della striscia
+$\mathbb{Z} \times \{0, 1, \ldots, n\}$ con $T_M$ che codifica correttamente la computazione
+di $M$ \emph{se e solo se} $M$ non si ferma entro $n$ passi.
+\end{lemma}
+
+\begin{proof}[Dimostrazione del Lemma~\ref{lem:strip}]
+($\Rightarrow$)
+Supponiamo esista un tiling valido della striscia. Per induzione su $r$, le condizioni di
+matching forzano che la riga $r$ codifichi esattamente la configurazione di $M$ al passo $r$:
+\begin{itemize}
+  \item Il lato SE di ogni cella $(q, r)$ riporta il simbolo (o la coppia stato-simbolo)
+        corretto al passo $r$, poiché è vincolato dal lato NW della cella $(q, r+1)$.
+  \item Il lato E di $(q, r)$ e il lato W di $(q+1, r)$ devono coincidere; l'unico tipo
+        di tessera che emette un segnale di movimento è T2/T3 (testina che parte), e l'unico
+        tipo che lo riceve è T4/T5 (testina che arriva). Questo obbliga che il segnale
+        percorra esattamente un confine, garantendo il movimento corretto della testina.
+  \item Lo stato $q_{\mathrm{halt}}$ non compare in nessun lato NW di $T_M$: non esiste
+        nessun tipo di tessera che possa ricevere $(q_{\mathrm{halt}}, a)$ e produrre un
+        lato SE valido. Dunque la riga $r$ non può essere costruita se $M$ si è fermata
+        al passo $r-1$.
+\end{itemize}
+Pertanto $M$ non si è fermata entro $n$ passi.
+
+($\Leftarrow$)
+Se $M$ non si ferma entro $n$ passi, costruiamo esplicitamente il tiling riga per riga:
+la riga $r$ è determinata univocamente dalla configurazione di $M$ al passo $r$. Ogni
+cella usa il tipo T1, T2, T3, T4 o T5 appropriato; le condizioni di matching sono
+soddisfatte per costruzione.
+\end{proof}
+
+\begin{corollario}
+$T_M$ tila l'intero piano $\mathbb{H}$ se e solo se $M$ non si ferma mai.
+\end{corollario}
+
+\begin{proof}
+($\Rightarrow$) Se $T_M$ tila $\mathbb{H}$, allora per ogni $n$ esiste un tiling della
+striscia $\mathbb{Z} \times \{0,\ldots,n\}$. Per il Lemma~\ref{lem:strip}, $M$ non si
+ferma entro $n$ passi per alcun $n$, quindi non si ferma mai.
+
+($\Leftarrow$) Se $M$ non si ferma mai, per ogni $n$ esiste un tiling valido della
+striscia di altezza $n$. Per il Teorema di Compattezza (König's Lemma su grafi
+localmente finiti), esiste un tiling dell'intero piano.
+\end{proof}
+
+Poiché il Problema della Fermata è indecidibile, e la mappa $M \mapsto T_M$ è calcolabile
+in tempo polinomiale in $|Q|$ e $|\Gamma|$, concludiamo che $\mathrm{HEX\text{-}TILE}$ è
+indecidibile.
+\end{proof}
+
+% ============================================================
+\subsection{Esempio Concreto di Tiling}
+% ============================================================
+
+Consideriamo la MdT $M$ minimale con $Q = \{q_0\}$, $\Gamma = \{\blank, 1\}$ e
+$\delta(q_0, \blank) = (q_0, 1, R)$: $M$ scrive $1$ e avanza a destra indefinitamente,
+senza mai fermarsi.
+
+La figura~\ref{fig:esempio} mostra il tiling $\tau$ per le celle $q \in \{0,1,2\}$
+(asse nastro, orizzontale) e i passi $r \in \{0, 1\}$ (asse tempo, verticale discendente),
+con configurazione iniziale: testina in $q=0$, stato $q_0$, nastro tutto $\blank$.
+
+\medskip
+
+\noindent\textbf{Assegnamento delle tessere:}
+\[
+\begin{array}{ll}
+(q{=}0,\,r{=}0): & T_2(q_0, \blank) \quad \text{testina scrive } 1 \text{, parte a destra} \\
+(q{=}1,\,r{=}0): & T_4(q_0, \blank) \quad \text{testina arriva da sinistra} \\
+(q{=}2,\,r{=}0): & T_1(\blank) \quad \text{sfondo} \\
+(q{=}0,\,r{=}1): & T_1(1) \quad \text{cella con } 1 \text{, nessuna testina} \\
+(q{=}1,\,r{=}1): & T_2(q_0, \blank) \quad \text{testina scrive } 1 \text{, parte a destra} \\
+(q{=}2,\,r{=}1): & T_4(q_0, \blank) \quad \text{testina arriva da sinistra}
+\end{array}
+\]
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}[font=\scriptsize, scale=0.88]
+
+%% Geometria: esagono pointy-top con circonraggio R = 1.2
+%%   inR = sqrt(3)/2 * 1.2 = 1.0392  (inraggio = distanza centro-lato)
+%%   Centro (q,r): x = 2*inR*q + inR*r = 2.0784*q + 1.0392*r
+%%                 y = -1.5*R*r        = -1.8*r
+%%
+%% Vertici di un esagono centrato in (cx,cy):
+%%   Top=(cx, cy+1.2), NE=(cx+1.0392, cy+0.6), SE=(cx+1.0392, cy-0.6),
+%%   Bot=(cx, cy-1.2), SW=(cx-1.0392, cy-0.6), NW=(cx-1.0392, cy+0.6)
+
+%% ---- Disegno esagoni ----
+% (q=0, r=0)  centro (0, 0)
+\draw[thick] (0,1.2)--(1.0392,0.6)--(1.0392,-0.6)--(0,-1.2)--(-1.0392,-0.6)--(-1.0392,0.6)--cycle;
+% (q=1, r=0)  centro (2.0784, 0)
+\draw[thick] (2.0784,1.2)--(3.1177,0.6)--(3.1177,-0.6)--(2.0784,-1.2)--(1.0392,-0.6)--(1.0392,0.6)--cycle;
+% (q=2, r=0)  centro (4.1569, 0)
+\draw[thick] (4.1569,1.2)--(5.1961,0.6)--(5.1961,-0.6)--(4.1569,-1.2)--(3.1177,-0.6)--(3.1177,0.6)--cycle;
+% (q=0, r=1)  centro (1.0392, -1.8)
+\draw[thick] (1.0392,-0.6)--(2.0784,-1.2)--(2.0784,-2.4)--(1.0392,-3.0)--(0,-2.4)--(0,-1.2)--cycle;
+% (q=1, r=1)  centro (3.1177, -1.8)
+\draw[thick] (3.1177,-0.6)--(4.1569,-1.2)--(4.1569,-2.4)--(3.1177,-3.0)--(2.0784,-2.4)--(2.0784,-1.2)--cycle;
+% (q=2, r=1)  centro (5.1961, -1.8)
+\draw[thick] (5.1961,-0.6)--(6.2353,-1.2)--(6.2353,-2.4)--(5.1961,-3.0)--(4.1569,-2.4)--(4.1569,-1.2)--cycle;
+
+%% ---- Etichette tipo tessera (al centro) ----
+\node[align=center] at (0,      0)    {$T_2$\\$\scriptstyle(q_0,\blank)$};
+\node[align=center] at (2.0784, 0)    {$T_4$\\$\scriptstyle(q_0,\blank)$};
+\node[align=center] at (4.1569, 0)    {$T_1(\blank)$};
+\node[align=center] at (1.0392,-1.8)  {$T_1(1)$};
+\node[align=center] at (3.1177,-1.8)  {$T_2$\\$\scriptstyle(q_0,\blank)$};
+\node[align=center] at (5.1961,-1.8)  {$T_4$\\$\scriptstyle(q_0,\blank)$};
+
+%% ---- Etichette lati condivisi ----
+%% Stile: arancio = asse NW/SE (propagazione tempo), ciano = asse E/W (segnale testina)
+\tikzset{
+  tlab/.style={fill=orange!25, inner sep=1.5pt, rounded corners=1pt},
+  hlab/.style={fill=cyan!25,   inner sep=1.5pt, rounded corners=1pt},
+  blab/.style={fill=white,     inner sep=1.5pt}
+}
+
+%%   E/W orizzontali (stesso r, segnale testina):
+\node[hlab] at (1.0392,  0)    {$(q_0,{\to})$};     %% (0,0)-(1,0)
+\node[blab] at (3.1177,  0)    {$\bot$};             %% (1,0)-(2,0)
+\node[blab] at (2.0784, -1.8)  {$\bot$};             %% (0,1)-(1,1)
+\node[hlab] at (4.1569, -1.8)  {$(q_0,{\to})$};     %% (1,1)-(2,1)
+
+%%   SE/NW diagonali (stesso q, propagazione temporale):
+\node[tlab] at (0.5196, -0.9)  {$1$};               %% SE(0,0) = NW(0,1)
+\node[tlab] at (2.5980, -0.9)  {$(q_0,\blank)$};    %% SE(1,0) = NW(1,1)
+\node[tlab] at (4.6765, -0.9)  {$\blank$};           %% SE(2,0) = NW(2,1)
+
+%%   NE/SW diagonali ausiliari (sempre bot):
+\node[blab] at (1.5588, -0.9)  {$\bot$};             %% NE(0,1) = SW(1,0)
+\node[blab] at (3.6373, -0.9)  {$\bot$};             %% NE(1,1) = SW(2,0)
+
+%%   Lati di confine NW di r=0 (configurazione iniziale):
+\node[tlab] at (-0.5196, 0.9)  {$(q_0,\blank)$};
+\node[tlab] at (1.5588,  0.9)  {$\blank$};
+\node[tlab] at (3.6373,  0.9)  {$\blank$};
+
+%%   Lati di confine SE di r=1 (uscita verso r=2):
+\node[tlab] at (1.5588, -2.7)  {$1$};
+\node[tlab] at (3.6373, -2.7)  {$1$};
+\node[tlab] at (5.7157, -2.7)  {$(q_0,\blank)$};
+
+%%   Lati di confine W e E:
+\node[blab] at (-1.0392,  0)   {$\bot$};
+\node[blab] at (0,        -1.8){$\bot$};
+\node[blab] at (5.1961,   0)   {$\bot$};
+\node[blab] at (6.2353,  -1.8) {$\bot$};
+
+%% ---- Assi annotati ----
+\node[font=\footnotesize] at (0,      1.65) {$q=0$};
+\node[font=\footnotesize] at (2.0784, 1.65) {$q=1$};
+\node[font=\footnotesize] at (4.1569, 1.65) {$q=2$};
+
+\draw[->, thick] (-2.0, 0.6) -- (-2.0, -2.5)
+    node[midway, left, font=\footnotesize, align=center] {tempo\\$r$};
+\node[font=\footnotesize] at (-1.6,  0.1) {$r{=}0$};
+\node[font=\footnotesize] at (-1.6, -1.8) {$r{=}1$};
+
+\draw[->, thick] (-0.5, 2.1) -- (5.0, 2.1)
+    node[right, font=\footnotesize] {nastro $q$};
+
+\end{tikzpicture}
+\caption{Esempio di tiling esagonale per $M$ con $\delta(q_0,\blank)=(q_0,1,R)$,
+  configurazione iniziale: testina in $q=0$, stato $q_0$, nastro tutto $\blank$.
+  Le caselle \colorbox{orange!25}{arancioni} indicano i colori sull'asse NW--SE
+  (propagazione temporale, stesso slot nastro).
+  Le caselle \colorbox{cyan!25}{ciane} indicano i segnali sull'asse E--W
+  (movimento testina, stessa riga temporale).
+  Si verifica: $\edgeSE(q,r) = \edgeNW(q,r{+}1)$ per ogni $q$
+  e $\edgeE(q,r) = \edgeW(q{+}1,r)$ per ogni $r$.}
+\label{fig:esempio}
+\end{figure}
+
+\paragraph{Verifica delle condizioni di matching.}
+I matching critici si possono leggere direttamente dalla figura:
+\begin{itemize}
+  \item \textbf{Propagazione temporale} (asse NW--SE): il lato SE di $T_2(q_0,\blank)$
+    in $(0,0)$ vale $1$, che coincide con il lato NW di $T_1(1)$ in $(0,1)$.
+    Analogamente, il lato SE di $T_4(q_0,\blank)$ in $(1,0)$ vale $(q_0,\blank)$,
+    che coincide con il lato NW di $T_2(q_0,\blank)$ in $(1,1)$.
+  \item \textbf{Segnale testina} (asse E--W): il lato E di $T_2(q_0,\blank)$ in $(0,0)$
+    emette $(q_0,{\to})$, che coincide con il lato W di $T_4(q_0,\blank)$ in $(1,0)$;
+    lo stesso segnale si ripete in $(1,1) \to (2,1)$.
+  \item \textbf{Diagonali ausiliarie} (asse NE--SW): tutti i lati NE e SW sono $\bot$,
+    consistentemente con la definizione dei tipi $T_1$--$T_5$.
+\end{itemize}
+
+% ============================================================
+\subsection{Discussione: Completezza vs.\ Praticità}
+% ============================================================
+
+Il Teorema~\ref{thm:undec} mostra che le tessere Wang esagonali sono computazionalmente
+universali: qualsiasi computazione può essere codificata in un problema di tiling.
+Questa completezza ha però un costo pratico: per costruzione, le mappe generate da $T_M$
+non hanno struttura visiva coerente — codificano nastri di Turing, non biomi.
+
+Questa tensione è il cuore teorico del progetto:
+\begin{itemize}
+  \item \textbf{Modello 1 (questo documento):} completezza computazionale, mappe insensate.
+  \item \textbf{Modello 2:} si rinuncia alla completezza e si lavora su un sottoinsieme
+        decidibile di configurazioni, definito tramite le formule logiche in z3,
+        ottenendo mappe visivamente coerenti.
+\end{itemize}
+
+\end{document}

@@ -92,7 +92,7 @@ class PropManager:
         """Controlla se ci sono props bloccanti a questa coordinata
         
         Returns:
-            True se c'è almeno un prop bloccante, False altrimenti
+            True se c'Ã¨ almeno un prop bloccante, False altrimenti
         """
         props_here = self.get_props_at_tile(q, r, z)
         return any(prop.blocking for _, _, prop in props_here)
@@ -172,7 +172,7 @@ class PropManager:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
         
-        print(f"\n✓ Salvato world state: {filepath}")
+        print(f"\nâœ“ Salvato world state: {filepath}")
         print(f"   Tiles: {len(data['tiles'])}")
         print(f"   Props: {len(data['props'])}")
     
@@ -235,18 +235,18 @@ class PropManager:
                                 prop.coloration
                             )
             
-            print(f"\n✓ Caricato world state: {filepath}")
+            print(f"\nâœ“ Caricato world state: {filepath}")
             print(f"   Tiles: {len(data.get('tiles', []))}")
             print(f"   Props: {len(data.get('props', []))}")
             
         except FileNotFoundError:
-            print(f"✗ File {filepath} non trovato")
+            print(f"âœ— File {filepath} non trovato")
         except Exception as e:
-            print(f"✗ Errore caricando world state: {e}")
+            print(f"âœ— Errore caricando world state: {e}")
             import traceback
             traceback.print_exc()
     
-    # ========== METODI LEGACY (compatibilità) ==========
+    # ========== METODI LEGACY (compatibilitÃ ) ==========
     
     def save_all_props(self, filepath="props_placement.json"):
         """Salva tutti i props piazzati su file (LEGACY - usa save_world_state invece)"""

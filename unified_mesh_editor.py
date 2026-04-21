@@ -19,7 +19,7 @@ try:
     from color_picker_widget import ColorPickerHSV
     import patterns
 except ImportError as e:
-    print(f"❌ Import error: {e}")
+    print(f"âŒ Import error: {e}")
     print("Assicurati che tutti i file siano presenti!")
     sys.exit(1)
 
@@ -152,7 +152,7 @@ class UnifiedMeshEditor:
                 if event.type == pygame.QUIT:
                     running = False
                 
-                # Color picker ha priorità
+                # Color picker ha prioritÃ 
                 if self.color_picker and self.color_picker.handle_event(event):
                     # Aggiorna colore nella palette
                     new_rgb = self.color_picker.get_color_rgb()
@@ -210,7 +210,7 @@ class UnifiedMeshEditor:
                 # Salva palette modificata
                 self.palette_manager.save_palette(self.current_biome, self.biome_palette)
                 self.color_picker = None
-                self._show_message("✓ Palette salvata")
+                self._show_message("âœ“ Palette salvata")
             return True
         
         # Normal mode
@@ -310,7 +310,7 @@ class UnifiedMeshEditor:
         if self.section_index is not None:
             section_str += f"_{self.section_index}"
         
-        # Aggiungi counter se esiste già
+        # Aggiungi counter se esiste giÃ 
         counter = 1
         while True:
             self.template_id = f"{base}_{section_str}_{counter:02d}"
@@ -367,7 +367,7 @@ class UnifiedMeshEditor:
         # Save Palette
         if 20 <= mx <= 220 and 320 <= my <= 370:
             self.palette_manager.save_palette(self.current_biome, self.biome_palette)
-            self._show_message("✓ Palette salvata")
+            self._show_message("âœ“ Palette salvata")
             return True
         
         return False
@@ -412,7 +412,7 @@ class UnifiedMeshEditor:
             )
             
             if not colors:
-                self._show_message("❌ Seleziona almeno un colore!")
+                self._show_message("âŒ Seleziona almeno un colore!")
                 return
             
             # Config variazione
@@ -438,10 +438,10 @@ class UnifiedMeshEditor:
             self.texture_path = None  # Non da file
             
             pattern_name = patterns.PATTERN_DEFINITIONS[self.pattern_type]['name']
-            self._show_message(f"✓ Generata texture: {pattern_name}")
+            self._show_message(f"âœ“ Generata texture: {pattern_name}")
         
         except Exception as e:
-            self._show_message(f"❌ Errore: {str(e)[:30]}")
+            self._show_message(f"âŒ Errore: {str(e)[:30]}")
             print(f"Errore generando texture: {e}")
     
     def _browse_texture(self):
@@ -492,10 +492,10 @@ class UnifiedMeshEditor:
                 self.texture_path = f"assets/{filepath.name}"
             
             self.texture_surface = pygame.image.load(self.texture_path)
-            self._show_message(f"✓ Texture: {filepath.name}")
+            self._show_message(f"âœ“ Texture: {filepath.name}")
         
         except Exception as e:
-            self._show_message(f"✗ Errore: {e}")
+            self._show_message(f"âœ— Errore: {e}")
     
     def _load_image(self, filepath: str):
         """Carica immagine prop"""
@@ -525,10 +525,10 @@ class UnifiedMeshEditor:
                 self.template_name = filepath.stem.replace('_', ' ').title()
             
             self._auto_generate_template_id()
-            self._show_message(f"✓ Immagine: {filepath.name}")
+            self._show_message(f"âœ“ Immagine: {filepath.name}")
         
         except Exception as e:
-            self._show_message(f"✗ Errore: {e}")
+            self._show_message(f"âœ— Errore: {e}")
     
     def _check_color_checkbox_click(self, mx: int, my: int) -> bool:
         """Check click su checkbox colori"""
@@ -587,7 +587,7 @@ class UnifiedMeshEditor:
     
     def _check_biome_dropdown_click(self, mx: int, my: int) -> bool:
         """Check click su biome dropdown"""
-        # Dropdown è a 20, 120, larghezza 300
+        # Dropdown Ã¨ a 20, 120, larghezza 300
         if 20 <= mx <= 320 and 120 <= my <= 160:
             # Cicla biomi
             current_idx = self.available_biomes.index(self.current_biome)
@@ -611,11 +611,11 @@ class UnifiedMeshEditor:
     def _save_template(self):
         """Salva mesh template"""
         if not self.template_id.strip():
-            self._show_message("❌ Template ID obbligatorio!")
+            self._show_message("âŒ Template ID obbligatorio!")
             return
         
         if not self.selected_color_indices:
-            self._show_message("❌ Seleziona almeno un colore!")
+            self._show_message("âŒ Seleziona almeno un colore!")
             return
         
         try:
@@ -656,16 +656,79 @@ class UnifiedMeshEditor:
                 with open(filepath, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
                 
-                self._show_message(f"✓ Salvato con pattern: {filepath.name}")
-                print(f"✓ Template salvato: {filepath}")
+                self._show_message(f"âœ“ Salvato con pattern: {filepath.name}")
+                print(f"âœ“ Template salvato: {filepath}")
             else:
                 filepath = template.save_to_file()
-                self._show_message(f"✓ Salvato: {filepath.name}")
-                print(f"✓ Template salvato: {filepath}")
+                self._show_message(f"âœ“ Salvato: {filepath.name}")
+                print(f"âœ“ Template salvato: {filepath}")
+            
+            # NUOVO: Salva ANCHE come Prop compatibile con PropManager
+            self._save_as_prop_definition(template, pattern_info)
+            
+            self._show_message(f"✓ Salvato template + prop")
         
         except Exception as e:
-            self._show_message(f"❌ Errore: {str(e)[:30]}")
-            print(f"✗ Errore salvando: {e}")
+            self._show_message(f"âŒ Errore: {str(e)[:30]}")
+            print(f"âœ— Errore salvando: {e}")
+    
+    def _save_as_prop_definition(self, template, pattern_info):
+        """Crea prop JSON compatibile con PropManager nella cartella props/"""
+        import json
+        from prop import Prop
+        
+        # Prepara coloration data se ci sono pattern/texture
+        coloration = None
+        if self.selected_color_indices:
+            colors = self.palette_manager.resolve_colors(
+                self.current_biome,
+                self.selected_color_indices
+            )
+            
+            coloration = {
+                'colors': colors,
+                'pattern': self.pattern_type,
+                'variation': {
+                    'type': self.variation_type,
+                    'intensity': self.variation_intensity
+                }
+            }
+        
+        # Prepara visual data
+        visual = None
+        if self.image_path:
+            visual = {
+                'type': 'image',
+                'path': self.image_path,
+                'scale': self.image_scale,
+                'offset_x': self.image_offset_x,
+                'offset_y': self.image_offset_y
+            }
+        elif coloration:
+            # Solo pattern, no immagine
+            visual = {
+                'type': 'pattern_only'
+            }
+        
+        # Crea prop
+        prop = Prop(
+            prop_id=self.template_id,
+            name=self.template_name if self.template_name.strip() else self.template_id,
+            section_type=self.section_type,
+            section_index=self.section_index,
+            visual=visual,
+            blocking=self.image_blocking,
+            z_offset=self.image_z_offset,
+            biome=self.current_biome,
+            coloration=coloration
+        )
+        
+        # Salva in props/
+        props_dir = Path("props")
+        props_dir.mkdir(exist_ok=True)
+        
+        filepath = prop.save_to_file(props_dir)
+        print(f"✓ Prop salvato: {filepath}")
     
     def _get_section_center(self) -> tuple:
         """Calcola centro sezione sul preview tile"""
@@ -844,7 +907,7 @@ class UnifiedMeshEditor:
         
         # Intensity slider (simplified - solo display per ora)
         y += 65
-        label = self.font_small.render(f"Intensità: {self.variation_intensity:.2f}", True, (255, 255, 255))
+        label = self.font_small.render(f"IntensitÃ : {self.variation_intensity:.2f}", True, (255, 255, 255))
         self.screen.blit(label, (20, y))
         
         hint = self.font_small.render("(Click sui bottoni per cambiare)", True, (150, 150, 150))
@@ -1032,7 +1095,7 @@ class UnifiedMeshEditor:
                         textured_section.set_at((x, y), (0, 0, 0, 0))
             
             # Blit sulla screen con semi-trasparenza
-            textured_section.set_alpha(200)  # 78% opacità
+            textured_section.set_alpha(200)  # 78% opacitÃ 
             self.screen.blit(textured_section, (min_x, min_y))
         
         except Exception as e:
@@ -1073,7 +1136,7 @@ if __name__ == "__main__":
     print("=" * 70)
     print("UNIFIED MESH EDITOR")
     print("=" * 70)
-    print("\n🎨 Features:")
+    print("\nðŸŽ¨ Features:")
     print("   - Modifica palette colori bioma con color picker HSV")
     print("   - Seleziona colori per mesh con checkbox")
     print("   - Carica texture PNG per tappezzare forme")
@@ -1085,6 +1148,6 @@ if __name__ == "__main__":
         editor = UnifiedMeshEditor()
         editor.run()
     except Exception as e:
-        print(f"\n❌ ERRORE: {e}")
+        print(f"\nâŒ ERRORE: {e}")
         import traceback
         traceback.print_exc()
