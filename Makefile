@@ -23,11 +23,13 @@ OPENMP_SOURCE := src/parallel/solver_openmp.c
 SERIAL_OBJECTS := $(SERIAL_SOURCES:%.c=$(BUILD_DIR)/%.o)
 OPENMP_OBJECT := $(BUILD_DIR)/$(OPENMP_SOURCE:.c=.o)
 PYTHON_TESTS := $(wildcard tests/python/test_*.py)
+C_TEST_SOURCES := $(wildcard tests/c/test_*.c)
+C_TEST_BINS := $(patsubst tests/c/%.c,$(BUILD_DIR)/tests/c/%,$(C_TEST_SOURCES))
 
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
-.PHONY: all setup serial openmp check python-check clean
+.PHONY: all setup serial openmp check c-check python-check clean
 
 all: serial
 
@@ -53,10 +55,22 @@ $(BUILD_DIR)/%.o: %.c
 $(LIB_DIR):
 	mkdir -p $@
 
-check:
-	$(MAKE) serial
-	$(MAKE) openmp
-	$(MAKE) python-check
+$(BUILD_DIR)/tests/c/%: tests/c/%.c $(SERIAL_LIBRARY)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $< $(SERIAL_LIBRARY) -o $@
+
+check: c-check openmp python-check
+
+c-check: serial $(C_TEST_BINS)
+	@set -e; \
+	if [ -z "$(strip $(C_TEST_BINS))" ]; then \
+		echo "No C tests found."; \
+	else \
+		for test in $(C_TEST_BINS); do \
+			echo "Running $$test"; \
+			$$test; \
+		done; \
+	fi
 
 python-check:
 ifneq ($(strip $(PYTHON_TESTS)),)
