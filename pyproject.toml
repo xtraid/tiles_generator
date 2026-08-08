@@ -1,0 +1,11 @@
+[project]
+name = "tiles-generator"
+version = "0.1.0"
+description = "Reference tools for the Wang23 tiling project"
+requires-python = ">=3.11"
+dependencies = [
+    "z3-solver>=4.15,<5",
+]
+
+[tool.uv]
+package = false

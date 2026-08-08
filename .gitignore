@@ -1,2 +1,5 @@
 tile_venv/
+.venv/
+.uv-cache/
 __pycache__/
+build/
