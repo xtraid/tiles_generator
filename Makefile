@@ -5,7 +5,8 @@ UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
 export UV_CACHE_DIR
 
 CPPFLAGS ?= -Iinclude
-CFLAGS ?= -std=c17 -Wall -Wextra -O2
+CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -O2
+DEPFLAGS ?= -MMD -MP
 OPENMP_FLAGS ?= -fopenmp
 
 BUILD_DIR := build
@@ -20,8 +21,13 @@ SERIAL_SOURCES := \
 	src/io/json.c
 
 OPENMP_SOURCE := src/parallel/solver_openmp.c
+
 SERIAL_OBJECTS := $(SERIAL_SOURCES:%.c=$(BUILD_DIR)/%.o)
 OPENMP_OBJECT := $(BUILD_DIR)/$(OPENMP_SOURCE:.c=.o)
+
+SERIAL_DEPS := $(SERIAL_OBJECTS:.o=.d)
+OPENMP_DEP := $(OPENMP_OBJECT:.o=.d)
+
 PYTHON_TESTS := $(wildcard tests/python/test_*.py)
 C_TEST_SOURCES := $(wildcard tests/c/test_*.c)
 C_TEST_BINS := $(patsubst tests/c/%.c,$(BUILD_DIR)/tests/c/%,$(C_TEST_SOURCES))
@@ -34,7 +40,7 @@ OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 all: serial
 
 setup:
-	$(UV) sync
+	$(UV) sync --frozen
 
 serial: $(SERIAL_LIBRARY)
 
@@ -50,7 +56,7 @@ $(BUILD_DIR)/src/parallel/solver_openmp.o: CFLAGS += $(OPENMP_FLAGS)
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(@D)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(LIB_DIR):
 	mkdir -p $@
@@ -74,10 +80,12 @@ c-check: serial $(C_TEST_BINS)
 
 python-check:
 ifneq ($(strip $(PYTHON_TESTS)),)
-	$(UV) run python -m unittest discover -s tests/python -p 'test_*.py'
+	$(UV) run --frozen python -m unittest discover -s tests/python -p 'test_*.py'
 else
 	@echo "No Python tests found; build checks passed."
 endif
 
 clean:
 	$(RM) -r $(BUILD_DIR)
+
+-include $(SERIAL_DEPS) $(OPENMP_DEP)

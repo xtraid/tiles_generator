@@ -42,6 +42,42 @@ The system should be able to:
 10. render the result using a hexagonal adaptation of
     [`xtraid/PAP_render`](https://github.com/xtraid/PAP_render).
 
+## Current implementation status
+
+As of **8 August 2026** on `main`:
+
+- [x] repository reset around the C/OpenMP + Z3 architecture;
+- [x] canonical 23-atomic-tile Yang-Zhang tileset;
+- [x] generalized-tile family metadata kept separate from solver semantics;
+- [x] oriented local Wang matching;
+- [x] C regression tests for the tileset and matching API;
+- [x] coarse Yang-Zhang adjacent-swap layout planner;
+- [x] GitHub Actions build/test pipeline;
+- [ ] Cubic Monotone 1-in-3 SAT parser and validator;
+- [ ] unique occurrence tokens and source/target permutation builder;
+- [ ] concrete region rasterization and boundary coloring;
+- [ ] independent tiling verifier;
+- [ ] native serial search solver;
+- [ ] Z3 Boolean and tiling reference paths;
+- [ ] OpenMP search implementation;
+- [ ] square-to-hex verified translation;
+- [ ] renderer integration.
+
+The current `YangZhangLayout` is **not yet the region builder**. It only computes
+coarse dimensions and owns the adjacent-swap sequence.
+
+The coarse layout intentionally includes two forwarder columns before and two after the
+crossover chain. This is a **project convention for explicit signal entry/exit bands**,
+not a claim that Yang-Zhang require those exact standalone columns. The formula-to-permutation
+layer should be completed before concrete region rasterization.
+
+## Documentation
+
+- [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)
+  — architecture and implementation specification.
+- [`docs/reduction_notes.md`](docs/reduction_notes.md)
+  — implementation conventions checked directly against the Yang-Zhang reduction.
+
 ---
 
 # 1. Scope
@@ -661,7 +697,8 @@ tiles_generator/
 |       +-- region.h
 |       +-- solver.h
 |       +-- verify.h
-|       `-- task_plan.h
+|       +-- task_plan.h
+|       `-- yang_zhang.h
 |
 +-- src/
 |   +-- core/
@@ -987,8 +1024,8 @@ These remain future / stretch work.
 
 Non-negotiable:
 
-- [ ] precise finite Wang problem definition;
-- [ ] fixed 23-tile representation;
+- [x] precise finite Wang problem definition;
+- [x] fixed 23-tile representation;
 - [ ] Cubic Monotone 1-in-3 SAT input representation;
 - [ ] Yang–Zhang region builder;
 - [ ] independent tiling verifier;
