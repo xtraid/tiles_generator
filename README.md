@@ -62,13 +62,15 @@ Implemented and tested as of 10 August 2026:
 - Yang–Zhang signal tokens and deterministic adjacent-swap routing;
 - application and validation of adjacent-swap sequences;
 - coarse Yang–Zhang dimension calculation;
-- C regression tests, including randomized permutation checks;
+- minimal dense row-major `Region` storage, access, and boundary constraints;
+- C regression tests, including deterministic randomized checks for
+  permutations and the public `Region` API;
 - C17/OpenMP build scaffold and GitHub Actions CI.
 
 Not implemented yet:
 
 - Cubic Monotone 1-in-3 SAT representation and parser;
-- concrete region storage and Yang–Zhang rasterization;
+- concrete Yang–Zhang region rasterization;
 - independent tiling verifier;
 - native serial and OpenMP solvers;
 - Z3 Boolean and tiling models;
@@ -82,15 +84,14 @@ does not indicate that the corresponding feature is implemented.
 
 Development proceeds through small, testable modules:
 
-1. implement the minimal square-grid `Region` representation;
-2. implement an independent verifier for hand-built regions and tilings;
-3. define and validate the source SAT representation;
-4. construct source/target signal sequences and concrete Yang–Zhang regions;
-5. implement the serial native solver and validate every witness;
-6. add the Z3 cross-checks;
-7. introduce OpenMP only after the serial baseline is stable;
-8. implement and verify the square-to-hex translation;
-9. stabilize JSON and renderer integration last.
+1. implement an independent verifier for hand-built regions and tilings;
+2. define and validate the source SAT representation;
+3. construct source/target signal sequences and concrete Yang–Zhang regions;
+4. implement the serial native solver and validate every witness;
+5. add the Z3 cross-checks;
+6. introduce OpenMP only after the serial baseline is stable;
+7. implement and verify the square-to-hex translation;
+8. stabilize JSON and renderer integration last.
 
 The implementation follows a deliberately small design rule: each datum has one
 owner, derived state is computed when needed, and future metadata is not added to

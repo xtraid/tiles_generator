@@ -1,6 +1,7 @@
 CC ?= cc
 AR ?= ar
 UV ?= uv
+VALGRIND ?= valgrind
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
 export UV_CACHE_DIR
 
@@ -36,7 +37,8 @@ C_TEST_BINS := $(patsubst tests/c/%.c,$(BUILD_DIR)/tests/c/%,$(C_TEST_SOURCES))
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
-.PHONY: all setup serial openmp check c-check python-check clean
+.PHONY: all setup serial openmp check c-check python-check \
+	valgrind-check cachegrind-check clean
 
 all: serial
 
@@ -78,6 +80,32 @@ c-check: serial $(C_TEST_BINS)
 			$$test; \
 		done; \
 	fi
+
+valgrind-check: serial $(C_TEST_BINS)
+	@set -e; \
+	for test in $(C_TEST_BINS); do \
+		echo "Running $$test under Valgrind"; \
+		$(VALGRIND) \
+			--error-exitcode=1 \
+			--leak-check=full \
+			--show-leak-kinds=all \
+			--errors-for-leak-kinds=all \
+			$$test; \
+	done
+
+cachegrind-check: serial $(C_TEST_BINS)
+	@mkdir -p $(BUILD_DIR)/cachegrind
+	@set -e; \
+	for test in $(C_TEST_BINS); do \
+		name=$${test##*/}; \
+		echo "Running $$test under Cachegrind"; \
+		$(VALGRIND) \
+			--tool=cachegrind \
+			--cache-sim=yes \
+			--error-exitcode=1 \
+			--cachegrind-out-file=$(BUILD_DIR)/cachegrind/$$name.out \
+			$$test; \
+	done
 
 python-check:
 ifneq ($(strip $(PYTHON_TESTS)),)

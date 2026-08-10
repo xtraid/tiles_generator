@@ -20,3 +20,21 @@ jobs:
 
       - name: Build and test
         run: make check
+
+  dynamic-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Valgrind
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes valgrind
+
+      - name: Check memory safety
+        run: make valgrind-check
+
+      - name: Exercise profiling path
+        run: make cachegrind-check
