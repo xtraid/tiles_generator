@@ -54,23 +54,27 @@ tileability.
 
 ## Current status
 
-Implemented and tested as of 10 August 2026:
+Implemented and tested as of 11 August 2026:
 
 - canonical static definition of the 23 atomic Wang tiles;
 - generalized-tile family metadata kept outside solver semantics;
 - oriented local edge matching;
 - Yang–Zhang signal tokens and deterministic adjacent-swap routing;
 - application and validation of adjacent-swap sequences;
-- coarse Yang–Zhang dimension calculation;
+- canonical in-memory Cubic Monotone 1-in-3 SAT representation and
+  builder-side domain validation;
+- transactional Yang–Zhang formula-to-region construction, including exact
+  swap-trace ownership, dimensions, the complete active mask, and all exposed
+  boundary colors;
 - minimal dense row-major `Region` storage, access, and boundary constraints;
 - C regression tests, including deterministic randomized checks for
-  permutations and the public `Region` API;
+  permutations, the public `Region` API, and complete formula-to-region
+  reductions;
 - C17/OpenMP build scaffold and GitHub Actions CI.
 
 Not implemented yet:
 
-- Cubic Monotone 1-in-3 SAT representation and parser;
-- concrete Yang–Zhang region rasterization;
+- Cubic Monotone 1-in-3 SAT text parsing;
 - independent tiling verifier;
 - native serial and OpenMP solvers;
 - Z3 Boolean and tiling models;
@@ -85,9 +89,9 @@ does not indicate that the corresponding feature is implemented.
 Development proceeds through small, testable modules:
 
 1. implement an independent verifier for hand-built regions and tilings;
-2. define and validate the source SAT representation;
-3. construct source/target signal sequences and concrete Yang–Zhang regions;
-4. implement the serial native solver and validate every witness;
+2. add the Cubic Monotone 1-in-3 SAT text parser;
+3. implement the serial native solver and validate every witness;
+4. add solver-level tests for forced forwarders, anchors, and crossovers;
 5. add the Z3 cross-checks;
 6. introduce OpenMP only after the serial baseline is stable;
 7. implement and verify the square-to-hex translation;
@@ -146,6 +150,10 @@ legacy/          frozen experimental code
 - [`docs/reduction_notes.md`](docs/reduction_notes.md) is the living record of
   reduction conventions already adopted by the implementation and of their
   explicit correctness obligations.
+- [`docs/yang_zhang_builder_design.md`](docs/yang_zhang_builder_design.md) is
+  the implementation contract for the formula-to-region builder, including
+  ownership, signal routing, crossover orientation, offsets, and the complete
+  boundary-color template.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)
   is the initial, future-facing architecture specification. Its proposed data
   structures are design sketches, not normative public APIs. Current headers

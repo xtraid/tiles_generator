@@ -1,0 +1,576 @@
+# Yang-Zhang region builder: implementation contract
+
+## Status and purpose
+
+This document records the implemented design contract for turning a validated
+Cubic Monotone 1-in-3 SAT instance into the colored region used by the fixed
+23-tile Yang-Zhang reduction.
+
+It is intentionally operational. The paper remains the source of truth for the
+mathematical construction and the fixed tileset. The implemented public headers
+and black-box tests are authoritative for API behavior; this document preserves
+the rationale, invariants, and correctness obligations behind them.
+
+Implementation status as of 11 August 2026: the formula representation, public
+reduction API, validation, routing, region construction, boundary coloring,
+ownership behavior, and required builder tests are implemented. The later
+solver-level integration obligation in Section 11.4 remains pending until a
+reference solver exists.
+
+Primary source:
+
+- Chao Yang and Zhujun Zhang, *NP-completeness of Tiling Finite Simply
+  Connected Regions with a Fixed Set of Wang Tiles*, arXiv:2405.01017v2,
+  especially Figures 1--4 and the proof of Theorem 3.
+
+This document covers only formula representation, logical routing, region
+construction, boundary colors, ownership, and builder tests. It does not cover
+DIMACS/text parsing, solving, verification, OpenMP scheduling, Z3, JSON, or
+rendering.
+
+## 1. Module boundary
+
+`yang_zhang` is a deterministic reduction builder:
+
+```text
+validated canonical CM1-in-3 formula -> colored rectangular Region
+                                      + exact adjacent-swap trace
+```
+
+The builder must:
+
+1. validate that the in-memory formula is inside the mathematical input
+   domain required by the reduction;
+2. construct the source and target signal sequences;
+3. delegate adjacent-swap generation to `permutation.c`;
+4. compute the layout dimensions;
+5. build the complete active mask;
+6. color every exposed unit edge of the region;
+7. return the region and the exact swap array transactionally.
+
+The builder must not:
+
+- parse text or repair/normalize invalid parser output;
+- solve the SAT instance;
+- select any Wang tile;
+- mark cells as variable, forwarder, anchor, crossover, or clause cells;
+- assign colors to internal edges between active cells;
+- construct solver domains, assignments, trails, tasks, or Z3 expressions.
+
+Anchor, crossover, and forwarder placement is forced later by the colored
+boundary and `TILESET`. It is not stored in `Region`.
+
+## 2. Canonical input representation
+
+Introduce the formula types in `include/wang/formula.h`:
+
+```c
+typedef struct {
+    uint32_t id;  /* canonical 0-based ID; must equal the array index */
+} Cm13Variable;
+
+typedef struct {
+    uint32_t variable_index[3]; /* indices into Cm13Formula.variables */
+} Cm13Clause;
+
+typedef struct {
+    Cm13Variable *variables;
+    uint32_t variable_count;
+
+    Cm13Clause *clauses;
+    size_t clause_count;
+} Cm13Formula;
+```
+
+The future parser owns the two arrays. `yang_zhang_build()` borrows the formula
+and all nested storage for the duration of the call and must neither modify nor
+free them.
+
+The explicit unique `variables` array represents the virgin signals emitted by
+the left side. The builder must not derive or deduplicate the variable set from
+the clauses. Clause entries refer to array indices, so target-sequence creation
+and domain validation remain linear.
+
+Repeated indices inside one clause are valid. For example, the paper clause
+`(x1, x1, x3)` is represented after canonicalization as:
+
+```c
+{ .variable_index = { 0, 0, 2 } }
+```
+
+The parser converts textual identifiers to this canonical representation. No
+negation field exists because the source problem is monotone, and the fixed
+three-element array encodes clause arity in the type.
+
+### 2.1 Builder-side domain validation
+
+Validation occurs once at the public API boundary. The builder rejects the
+input without modifying the output when any of these conditions holds:
+
+- the formula, output, variables array, or clauses array is null;
+- `variable_count == 0`;
+- `variable_count > YANG_ZHANG_MAX_VARIABLES`;
+- `clause_count != variable_count`;
+- `variables[i].id != i` for any variable;
+- any clause index is outside `0 .. variable_count - 1`;
+- any variable index occurs other than exactly three times in the flattened
+  clause array;
+- any derived count, allocation size, height, or width overflows;
+- an allocation fails.
+
+No distinctness check is applied to the three entries of one clause. Cubicity
+is about total occurrences across the formula, not distinct variables within a
+clause.
+
+The occurrence-count pass is also useful work: it provides the stable
+occurrence number `0`, `1`, or `2` used while constructing target signal
+tokens. Reject a fourth occurrence immediately rather than allowing a small
+counter to wrap.
+
+## 3. Public reduction result and ownership
+
+Extend `include/wang/yang_zhang.h` with:
+
+```c
+typedef struct {
+    Region region;
+
+    AdjacentSwap *swaps;
+    size_t swap_count;
+} YangZhangReduction;
+
+bool yang_zhang_build(
+    const Cm13Formula *formula,
+    YangZhangReduction *out_reduction
+);
+
+void yang_zhang_reduction_destroy(YangZhangReduction *reduction);
+```
+
+The exact array returned by `yang_zhang_permutation_build()` is transferred
+into `YangZhangReduction`; it is not copied. It is retained as a diagnostic
+trace of the reduction and as possible input to later task-plan preprocessing.
+The reference solver and independent verifier must receive only `Region` and
+must not use this logical trace.
+
+Callers initialize the output as:
+
+```c
+YangZhangReduction reduction = {0};
+```
+
+`yang_zhang_build()` requires a destroyed/zeroed output. On success, the caller
+owns both `region.cells` and `swaps`. On every failure, the output remains in
+the destroyed state. `yang_zhang_reduction_destroy()` accepts null, destroys
+the region, frees the swap array, and resets every field to zero/null.
+
+The builder is safe to call concurrently for immutable formulas when each call
+uses a distinct output object. It owns no global mutable state.
+
+## 4. Coordinates and orientation
+
+The entire C implementation uses:
+
+```text
+(0, 0)       top-left
+x increases  to the right
+y increases  downward
+N/E/S/W      exposed cell sides
+```
+
+Signal rows are zero-based. `AdjacentSwap.row == r` swaps signal rows `r` and
+`r + 1`. The corresponding paper row and crossover-block width are both:
+
+```text
+w = r + 1
+```
+
+Always describe a right-anchor chain in its nominal direction: from the
+crossover it travels **up and to the right** until it reaches the top boundary.
+In coordinates, each step decreases `y` and increases `x`. Reading the same
+chain from its top-boundary seed toward the crossover reverses the direction,
+but implementation comments should not use that reversed description.
+
+A left-anchor chain rises vertically from its `L` seed on the bottom boundary.
+
+## 5. Source and target signal sequences
+
+For `n = variable_count`, the signal height is:
+
+```text
+h = 3n + (n - 1) = 4n - 1
+```
+
+There are three unique occurrence tokens for every variable and one unique
+redundant token between consecutive variable/clause groups.
+
+### 5.1 Source order
+
+The source order is built directly from the explicit unique variable array:
+
+```text
+x0^0 x0^1 x0^2 z0 x1^0 x1^1 x1^2 z1 ... x(n-1)^0 x(n-1)^1 x(n-1)^2
+```
+
+One deterministic token-ID scheme is:
+
+```text
+variable occurrence: token_id = 3 * variable_index + occurrence
+redundant token:      token_id = 3 * n + redundant_index
+```
+
+### 5.2 Target order
+
+Scan clauses from first to last and each clause from row 0 to row 2. Maintain a
+counter for every variable. When `variable_index == v` is encountered, append
+the unique token `(v, occurrence_counter[v])`, then increment the counter.
+Append redundant token `zc` after clause `c`, except after the last clause.
+
+Because validation established cubicity, each variable counter finishes at
+exactly three and target is a permutation of source even when a clause repeats
+a variable.
+
+### 5.3 Swap generation
+
+Pass source and target to `yang_zhang_permutation_build()`. Do not duplicate its
+sorting algorithm in `yang_zhang.c`.
+
+The existing algorithm fixes the target prefix from top to bottom. For target
+position `i`, if the required token is currently at `j`, it emits:
+
+```text
+swap(j - 1), swap(j - 2), ..., swap(i)
+```
+
+Applying all returned swaps to source must produce target exactly.
+
+Source, target, and occurrence counters are temporary build storage. Release
+them on both success and failure. Only the swap array is transferred to the
+public reduction result.
+
+## 6. Coarse layout
+
+The project layout remains:
+
+```text
+[variables][left forwarders][crossover chain][right forwarders][clauses]
+     1              2           variable               2           2
+```
+
+The two forwarder columns on each side are an explicit project convention, not
+a width required by the paper.
+
+For swaps `s[0..k)`, dimensions are:
+
+```text
+height = 4n - 1
+
+width =
+    YANG_ZHANG_VARIABLE_WIDTH
+  + YANG_ZHANG_LEFT_FORWARD_WIDTH
+  + sum(s[i].row + 1)
+  + YANG_ZHANG_RIGHT_FORWARD_WIDTH
+  + YANG_ZHANG_CLAUSE_WIDTH
+```
+
+Use `yang_zhang_compute_dimensions()` as the only implementation of this
+arithmetic.
+
+The region produced by this builder is a full rectangle: every cell in its
+`width * height` bounding box is active. The generic `Region` type remains
+capable of describing non-rectangular regions for other consumers.
+
+## 7. Crossover blocks
+
+Let `block_x` be the first column of one crossover block and let:
+
+```text
+r = swap.row
+w = r + 1
+```
+
+The block occupies the full signal height and the half-open horizontal range:
+
+```text
+[block_x, block_x + w)
+```
+
+Its top and bottom boundary colors, from left to right, are:
+
+```text
+top:    B^(w-1) R
+bottom: L B^(w-1)
+```
+
+With cell-side notation, after the complete active mask exists:
+
+```c
+region_set_boundary(region, block_x + w - 1, 0, N, COLOR_R);
+region_set_boundary(region, block_x, height - 1, S, COLOR_L);
+```
+
+All other top and bottom sides of this block remain `COLOR_B`.
+
+The `L` seed creates a vertical left-anchor chain. The forced crossover lies
+on rows `r` and `r + 1`. From that crossover, the right-anchor chain rises to
+the right and reaches the `R` seed at the block's top-right corner.
+
+After one block:
+
+```c
+block_x += w;
+```
+
+The next block begins immediately. "Immediately" refers to adjacent horizontal
+intervals, not adjacent crossover tiles. Anchor locations vary with `r`; the
+remaining cells between and around anchor chains are forced to be forwarders,
+forming the triangular forwarder areas visible in the paper. The builder does
+not annotate or pre-place those forwarders.
+
+Do not compress several swaps into consecutive runs of `L` and `R` colors.
+All anchors share the same `L`/`R` colors, so such a packing would introduce
+interacting, indistinguishable anchor chains. The proven construction isolates
+every adjacent transposition in the block above. A compressed construction
+would require a separate correctness proof and is out of scope.
+
+No `4n - 1` forwarder padding is required after the last block. The existing
+two-column right-forwarder band is retained.
+
+## 8. Complete boundary-color template
+
+A finished Yang-Zhang region has a color on every exposed unit side. No
+exposed side remains `COLOR_NONE`. All sides between two active cells remain
+unconstrained in `Region`; their colors are determined only by tile matching.
+
+Apply colors in this order, after every cell has been activated.
+
+### 8.1 Default perimeter
+
+Set every exposed side of the rectangle to `COLOR_B`:
+
+- `N` for all cells on row `0`;
+- `S` for all cells on row `height - 1`;
+- `W` for all cells on column `0`;
+- `E` for all cells on column `width - 1`.
+
+At corners, the two exposed sides are separate constraints and both are set.
+
+### 8.2 Left variable boundary
+
+For variable `v`, its three rows are:
+
+```text
+y = 4v, 4v + 1, 4v + 2
+```
+
+Set their west sides to `COLOR_V`. If `v` is not the final variable, row
+`4v + 3` is redundant; set its west side to `COLOR_0`.
+
+The resulting repeating pattern is:
+
+```text
+V V V 0 | V V V 0 | ... | V V V
+```
+
+### 8.3 Right clause boundary
+
+For clause `c`, its three rows are:
+
+```text
+y = 4c, 4c + 1, 4c + 2
+```
+
+Set their east sides respectively to:
+
+```text
+COLOR_0_PRIME, COLOR_0_PRIME, COLOR_1
+```
+
+If `c` is not the final clause, row `4c + 3` is redundant; set its east side
+to `COLOR_0`.
+
+The resulting repeating pattern is:
+
+```text
+0' 0' 1 0 | 0' 0' 1 0 | ... | 0' 0' 1
+```
+
+### 8.4 Crossover overrides
+
+Walk the crossover blocks in swap order and overwrite only:
+
+- the top-right side of each block from `COLOR_B` to `COLOR_R`;
+- the bottom-left side of each block from `COLOR_B` to `COLOR_L`.
+
+Variable, clause, and explicit forwarder bands keep `COLOR_B` on their north
+and south boundaries. There are no colors on internal vertical seams between
+layout bands or between crossover blocks.
+
+## 9. Transactional build sequence
+
+Implement `yang_zhang_build()` in this order:
+
+1. verify the public pointers and that the output is destroyed;
+2. validate the complete formula domain;
+3. allocate occurrence counters and source/target signal arrays;
+4. build source and target;
+5. call `yang_zhang_permutation_build()`;
+6. optionally assert in tests/debug builds that applying the swaps transforms
+   a source copy into target;
+7. call `yang_zhang_compute_dimensions()`;
+8. initialize a local temporary `Region`;
+9. activate all cells, iterating row-major for locality;
+10. set the default `COLOR_B` perimeter;
+11. overwrite the left variable boundary;
+12. overwrite the right clause boundary;
+13. walk swaps and overwrite crossover `L/R` markers;
+14. free all temporary signal/counter storage;
+15. move the temporary region and swap pointer into `out_reduction`.
+
+Use the public `Region` API. In particular, the entire active mask must be
+completed before the first `region_set_boundary()` call, because that function
+accepts only genuinely exposed sides.
+
+On any failure after allocation:
+
+- free source, target, counters, and swaps if still locally owned;
+- call `region_destroy()` on the temporary region;
+- leave `out_reduction` destroyed;
+- return `false`.
+
+Do not write into the public output incrementally.
+
+## 10. Suggested private helpers
+
+Keep the public API small. The implementation may use these private helpers,
+implemented and tested through the public black-box API one responsibility at
+a time:
+
+```c
+static bool formula_is_in_reduction_domain(const Cm13Formula *formula);
+
+static bool build_signal_sequences(
+    const Cm13Formula *formula,
+    SignalToken **out_source,
+    SignalToken **out_target,
+    size_t *out_signal_count
+);
+
+static bool activate_rectangle(Region *region);
+
+static bool paint_default_perimeter(Region *region);
+
+static bool paint_variable_boundary(
+    Region *region,
+    uint32_t variable_count
+);
+
+static bool paint_clause_boundary(
+    Region *region,
+    size_t clause_count
+);
+
+static bool paint_crossover_boundaries(
+    Region *region,
+    int32_t first_x,
+    const AdjacentSwap *swaps,
+    size_t swap_count
+);
+```
+
+Names may be adjusted to local style, but the responsibility boundaries and
+failure behavior should remain unchanged. Do not expose helpers solely to unit
+test them; inspect results through `yang_zhang_build()` and public `Region`
+accessors.
+
+## 11. Required black-box tests
+
+Add tests to `tests/c/test_yang_zhang.c` using only public APIs.
+
+### 11.1 Minimal valid instance
+
+Use one variable and one clause `{0, 0, 0}`:
+
+- `height == 3`;
+- no redundant row;
+- no swaps;
+- project width `1 + 2 + 0 + 2 + 2 == 7`;
+- all cells active;
+- west boundary is `V,V,V`;
+- east boundary is `0',0',1`;
+- north and south boundaries are all `B`;
+- all non-exposed sides remain `COLOR_NONE`.
+
+This fixture is a valid reduction input even if its Boolean instance is
+unsatisfiable. The builder validates the source domain, not satisfiability.
+
+### 11.2 Paper instance
+
+Use variables `0,1,2` and clauses:
+
+```text
+(0,0,2)
+(1,1,2)
+(0,1,2)
+```
+
+Assert:
+
+- `height == 11`;
+- the swap rows are exactly
+  `7,6,5,4,3,2,3,4,5,8,7,6,8,7`;
+- crossover widths sum to `89`;
+- total project width is `96`;
+- applying the returned swaps to source yields the target ordering;
+- every crossover block has `R` at its top-right and `L` at its bottom-left;
+- all other north/south sides are `B`;
+- left and right boundary patterns match Section 8 exactly;
+- all cells are active and there are no internal boundary constraints.
+
+### 11.3 Invalid and adversarial input
+
+Cover at least:
+
+- null API arguments;
+- zero variables;
+- null arrays;
+- variable ID not equal to its index;
+- clause-count mismatch;
+- clause index out of range;
+- a variable occurring two or four times;
+- dimension overflow where representable without dangerous allocation;
+- a non-destroyed output object;
+- input arrays unchanged after both success and failure;
+- output fully destroyed after every failure path.
+
+Retain the existing deterministic stress/fuzz philosophy: generate small
+canonical arrays with a fixed PRNG seed, mutate one invariant at a time, and
+verify rejection and absence of output side effects. Run the resulting tests
+under the existing Memcheck, Cachegrind, ASan, and UBSan workflows.
+
+### 11.4 Later integration obligation
+
+Once a reference solver exists, test small isolated crossover regions through
+the public solver/verifier path. The test must establish that boundary markers
+force the requested adjacent swap while the remaining triangular areas contain
+only compatible forwarders/anchors. Builder tests alone inspect encoding; they
+cannot prove the complete forced-tiling property.
+
+## 12. Decisions that must not be silently changed
+
+- Formula variables are explicit and unique; they are not derived from
+  clauses.
+- Clause references are indices into the variable array.
+- Repeated variables inside a clause are allowed.
+- Coordinates are zero-based with `y` increasing downward.
+- `R` is described as rising to the right from the crossover.
+- One proven rectangular crossover block is emitted per adjacent swap.
+- Crossover blocks are adjacent; their implicit forwarder triangles are not
+  stored as metadata.
+- Two explicit forwarder columns remain before and after the crossover chain.
+- The builder colors only exposed region sides, never internal cell edges.
+- The produced Yang-Zhang region is a fully active rectangle with a completely
+  colored exterior boundary.
+- The result owns the exact generated swap array; solver correctness must not
+  depend on it.
+- Construction is transactional and leaves no partial public output.

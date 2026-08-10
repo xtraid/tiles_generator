@@ -134,12 +134,14 @@ For each signal value admitted by the construction, the band must:
 - preserve redundant rows as required;
 - not alter SAT/UNSAT of the constructed tiling instance.
 
-In practice this should become a small gadget-level regression test once the concrete
-`Region` builder exists.
+The concrete `Region` builder now has black-box tests for the complete active mask,
+boundary encoding, and exact swap trace. Once a reference solver exists, small
+gadget-level tests must additionally establish the forced-tiling behavior of the
+forwarder bands and isolated crossover blocks.
 
-## 6. Current boundary of the dimension calculator
+## 6. Dimension calculator and completed builder
 
-`yang_zhang_compute_dimensions()` is only a coarse dimension calculator.
+`yang_zhang_compute_dimensions()` remains only a coarse dimension calculator.
 
 It computes:
 
@@ -149,13 +151,18 @@ It computes:
 The adjacent-swap sequence remains owned by the permutation layer. The dimension
 calculator only reads it for the duration of the call.
 
-It does not yet implement:
+The public `yang_zhang_build()` composes this calculator with the remaining
+reduction stages:
 
-- SAT formula parsing;
-- unique occurrence tokens;
+- validation of the canonical in-memory formula;
+- unique occurrence and redundant signal tokens;
 - source/target permutation construction;
-- concrete cells;
-- boundary colors;
-- variable/clause/crossover rasterization.
+- a fully active rectangular `Region`;
+- complete exterior boundary colors;
+- variable, clause, and isolated crossover boundary markers;
+- transactional transfer of the exact adjacent-swap trace.
 
-Those stages should stay separate and independently testable.
+The builder deliberately does not parse text, solve the formula, choose tiles, or
+store gadget annotations in `Region`. Its full implementation contract is recorded
+in `yang_zhang_builder_design.md`; public headers and black-box tests are
+authoritative for implemented behavior.

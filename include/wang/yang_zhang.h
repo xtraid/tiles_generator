@@ -5,7 +5,38 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wang/formula.h"
 #include "wang/permutation.h"
+#include "wang/region.h"
+
+/*
+ * Result of a Yang-Zhang reduction build.
+ *
+ * On successful construction, the caller owns both region.cells and swaps.
+ * Initialize this object to zero before use and release it with
+ * yang_zhang_reduction_destroy().
+ */
+typedef struct {
+    Region region;
+
+    AdjacentSwap *swaps;
+    size_t swap_count;
+} YangZhangReduction;
+
+/*
+ * Build the colored region and adjacent-swap trace for a canonical CM1-in-3
+ * formula. The formula is borrowed and is never modified.
+ *
+ * The output must be zero-initialized or previously destroyed. Construction
+ * is transactional: on failure, the output remains in the destroyed state.
+ */
+bool yang_zhang_build(
+    const Cm13Formula *formula,
+    YangZhangReduction *out_reduction
+);
+
+/* Release all owned storage and reset every field. Accepts NULL. */
+void yang_zhang_reduction_destroy(YangZhangReduction *reduction);
 
 /*
  * Yang-Zhang layout conventions used by this project.
