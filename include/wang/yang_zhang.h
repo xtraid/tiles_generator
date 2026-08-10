@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wang/permutation.h"
+
 /*
  * Yang-Zhang layout conventions used by this project.
  *
@@ -30,20 +32,8 @@
 #define YANG_ZHANG_RIGHT_FORWARD_WIDTH  2u
 #define YANG_ZHANG_CLAUSE_WIDTH         2u
 
-typedef struct {
-    uint32_t row; /* 0-based: swaps row with row + 1 */
-} AdjacentSwap;
-
-typedef struct {
-    int32_t height;
-    int32_t width;
-
-    size_t swap_count;
-    AdjacentSwap *swaps;
-} YangZhangLayout;
-
 /*
- * Build the coarse project layout and own a copy of the swap sequence.
+ * Compute the dimensions of the coarse project layout.
  *
  * On success:
  *
@@ -56,16 +46,15 @@ typedef struct {
  *     + YANG_ZHANG_RIGHT_FORWARD_WIDTH
  *     + YANG_ZHANG_CLAUSE_WIDTH
  *
- * The caller must destroy a successfully initialized layout before
- * initializing the same object again.
+ * The swap sequence is borrowed for the duration of this call. It is never
+ * copied, modified, or released here.
  */
-bool yang_zhang_layout_init(
-    YangZhangLayout *layout,
+bool yang_zhang_compute_dimensions(
     uint32_t variable_count,
     const AdjacentSwap *swaps,
-    size_t swap_count
+    size_t swap_count,
+    int32_t *out_height,
+    int32_t *out_width
 );
-
-void yang_zhang_layout_destroy(YangZhangLayout *layout);
 
 #endif /* WANG_YANG_ZHANG_H */

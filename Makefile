@@ -15,6 +15,7 @@ LIB_DIR := $(BUILD_DIR)/lib
 SERIAL_SOURCES := \
 	src/core/tile.c \
 	src/core/region.c \
+	src/builder/permutation.c \
 	src/builder/yang_zhang.c \
 	src/solver/solver_serial.c \
 	src/verify/verify_tiling.c \

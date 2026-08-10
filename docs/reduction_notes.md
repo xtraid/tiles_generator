@@ -127,15 +127,17 @@ For each signal value admitted by the construction, the band must:
 In practice this should become a small gadget-level regression test once the concrete
 `Region` builder exists.
 
-## 6. Current boundary of `YangZhangLayout`
+## 6. Current boundary of the dimension calculator
 
-`YangZhangLayout` is only a coarse layout planner.
+`yang_zhang_compute_dimensions()` is only a coarse dimension calculator.
 
-It currently owns:
+It computes:
 
 - total height;
-- total width;
-- a private copy of the adjacent-swap sequence.
+- total width.
+
+The adjacent-swap sequence remains owned by the permutation layer. The dimension
+calculator only reads it for the duration of the call.
 
 It does not yet implement:
 

@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-static void test_layout_normal(void)
+static void test_dimensions_normal(void)
 {
     const AdjacentSwap swaps[] = {
         { .row = 7 }, /* paper swap(8), width 8 */
@@ -11,16 +11,18 @@ static void test_layout_normal(void)
         { .row = 5 }  /* paper swap(6), width 6 */
     };
 
-    YangZhangLayout layout;
+    int32_t height = 0;
+    int32_t width = 0;
 
-    assert(yang_zhang_layout_init(
-        &layout,
+    assert(yang_zhang_compute_dimensions(
         3,
         swaps,
-        3
+        3,
+        &height,
+        &width
     ));
 
-    assert(layout.height == 11);
+    assert(height == 11);
 
     /*
      * Project convention:
@@ -33,22 +35,12 @@ static void test_layout_normal(void)
      *
      * total = 28
      */
-    assert(layout.width == 28);
+    assert(width == 28);
 
-    assert(layout.swap_count == 3);
-    assert(layout.swaps != NULL);
-    assert(layout.swaps != swaps);
-
-    assert(layout.swaps[0].row == 7);
-    assert(layout.swaps[1].row == 6);
-    assert(layout.swaps[2].row == 5);
-
-    yang_zhang_layout_destroy(&layout);
-
-    assert(layout.height == 0);
-    assert(layout.width == 0);
-    assert(layout.swap_count == 0);
-    assert(layout.swaps == NULL);
+    /* The borrowed swap sequence is not modified. */
+    assert(swaps[0].row == 7);
+    assert(swaps[1].row == 6);
+    assert(swaps[2].row == 5);
 }
 
 static void test_paper_example_swap_sequence_with_project_padding(void)
@@ -77,16 +69,18 @@ static void test_paper_example_swap_sequence_with_project_padding(void)
         { .row = 7 }
     };
 
-    YangZhangLayout layout;
+    int32_t height = 0;
+    int32_t width = 0;
 
-    assert(yang_zhang_layout_init(
-        &layout,
+    assert(yang_zhang_compute_dimensions(
         3,
         swaps,
-        sizeof(swaps) / sizeof(swaps[0])
+        sizeof(swaps) / sizeof(swaps[0]),
+        &height,
+        &width
     ));
 
-    assert(layout.height == 11);
+    assert(height == 11);
 
     /*
      * Paper crossover widths sum to 89.
@@ -94,24 +88,23 @@ static void test_paper_example_swap_sequence_with_project_padding(void)
      * Project coarse width:
      *   1 + 2 + 89 + 2 + 2 = 96
      */
-    assert(layout.width == 96);
-    assert(layout.swap_count == 14);
-
-    yang_zhang_layout_destroy(&layout);
+    assert(width == 96);
 }
 
 static void test_layout_without_swaps(void)
 {
-    YangZhangLayout layout;
+    int32_t height = 0;
+    int32_t width = 0;
 
-    assert(yang_zhang_layout_init(
-        &layout,
+    assert(yang_zhang_compute_dimensions(
         1,
         NULL,
-        0
+        0,
+        &height,
+        &width
     ));
 
-    assert(layout.height == 3);
+    assert(height == 3);
 
     /*
      * Even without a crossover block, the project convention retains
@@ -119,35 +112,37 @@ static void test_layout_without_swaps(void)
      *
      * 1 + 2 + 0 + 2 + 2 = 7
      */
-    assert(layout.width == 7);
-
-    assert(layout.swap_count == 0);
-    assert(layout.swaps == NULL);
-
-    yang_zhang_layout_destroy(&layout);
+    assert(width == 7);
 }
 
 static void test_zero_variables_rejected(void)
 {
-    YangZhangLayout layout;
+    int32_t height = 11;
+    int32_t width = 28;
 
-    assert(!yang_zhang_layout_init(
-        &layout,
+    assert(!yang_zhang_compute_dimensions(
         0,
         NULL,
-        0
+        0,
+        &height,
+        &width
     ));
+
+    assert(height == 11);
+    assert(width == 28);
 }
 
 static void test_null_swaps_rejected(void)
 {
-    YangZhangLayout layout;
+    int32_t height = 0;
+    int32_t width = 0;
 
-    assert(!yang_zhang_layout_init(
-        &layout,
+    assert(!yang_zhang_compute_dimensions(
         2,
         NULL,
-        1
+        1,
+        &height,
+        &width
     ));
 }
 
@@ -161,43 +156,83 @@ static void test_invalid_swap_row_rejected(void)
         { .row = 6 }
     };
 
-    YangZhangLayout layout;
+    int32_t height = 0;
+    int32_t width = 0;
 
-    assert(!yang_zhang_layout_init(
-        &layout,
+    assert(!yang_zhang_compute_dimensions(
         2,
         swaps,
-        1
+        1,
+        &height,
+        &width
     ));
 }
 
-static void test_null_layout_rejected(void)
+static void test_null_outputs_rejected(void)
 {
-    assert(!yang_zhang_layout_init(
-        NULL,
+    int32_t height = 0;
+    int32_t width = 0;
+
+    assert(!yang_zhang_compute_dimensions(
         1,
         NULL,
-        0
+        0,
+        NULL,
+        &width
+    ));
+
+    assert(!yang_zhang_compute_dimensions(
+        1,
+        NULL,
+        0,
+        &height,
+        NULL
     ));
 }
 
-static void test_destroy_null_is_safe(void)
+static void test_variable_count_overflow_rejected(void)
 {
-    yang_zhang_layout_destroy(NULL);
+    int32_t height = 0;
+    int32_t width = 0;
+
+    assert(!yang_zhang_compute_dimensions(
+        YANG_ZHANG_MAX_VARIABLES + 1u,
+        NULL,
+        0,
+        &height,
+        &width
+    ));
+}
+
+static void test_width_overflow_rejected(void)
+{
+    const AdjacentSwap swaps[] = {
+        { .row = (uint32_t)INT32_MAX - 7u }
+    };
+    int32_t height = 0;
+    int32_t width = 0;
+
+    assert(!yang_zhang_compute_dimensions(
+        YANG_ZHANG_MAX_VARIABLES,
+        swaps,
+        1,
+        &height,
+        &width
+    ));
 }
 
 int main(void)
 {
-    test_layout_normal();
+    test_dimensions_normal();
     test_paper_example_swap_sequence_with_project_padding();
     test_layout_without_swaps();
 
     test_zero_variables_rejected();
     test_null_swaps_rejected();
     test_invalid_swap_row_rejected();
-    test_null_layout_rejected();
-
-    test_destroy_null_is_safe();
+    test_null_outputs_rejected();
+    test_variable_count_overflow_rejected();
+    test_width_overflow_rejected();
 
     puts("test_yang_zhang: OK");
     return 0;

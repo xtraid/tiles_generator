@@ -63,8 +63,8 @@ As of **8 August 2026** on `main`:
 - [ ] square-to-hex verified translation;
 - [ ] renderer integration.
 
-The current `YangZhangLayout` is **not yet the region builder**. It only computes
-coarse dimensions and owns the adjacent-swap sequence.
+The current Yang-Zhang builder is **not yet the region builder**. It only computes
+coarse dimensions from the adjacent-swap sequence owned by the permutation layer.
 
 The coarse layout intentionally includes two forwarder columns before and two after the
 crossover chain. This is a **project convention for explicit signal entry/exit bands**,
