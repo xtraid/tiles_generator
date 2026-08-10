@@ -3,24 +3,101 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void single_swap(SignalToken *top, SignalToken *bottom)
+enum { INITIAL_SWAP_CAPACITY = 16 };
+
+typedef struct {
+    AdjacentSwap *items;
+    size_t count;
+    size_t capacity;
+} SwapBuffer;
+
+static bool token_is_valid(const SignalToken *token)
 {
-    /* Swap the complete tokens: identity and metadata must move together. */
+    return token->kind == SIGNAL_REDUNDANT ||
+        (token->kind == SIGNAL_VARIABLE && token->occurrence < 3u);
+}
+
+static bool tokens_are_valid_and_unique(
+    const SignalToken *tokens,
+    size_t token_count
+)
+{
+    for (size_t i = 0; i < token_count; ++i) {
+        if (!token_is_valid(&tokens[i])) {
+            return false;
+        }
+
+        for (size_t j = i + 1; j < token_count; ++j) {
+            if (tokens[i].token_id == tokens[j].token_id) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+static bool tokens_match(const SignalToken *left, const SignalToken *right)
+{
+    if (left->kind != right->kind || left->token_id != right->token_id) {
+        return false;
+    }
+
+    return left->kind == SIGNAL_REDUNDANT ||
+        (left->variable == right->variable &&
+         left->occurrence == right->occurrence);
+}
+
+static bool swap_buffer_append(SwapBuffer *buffer, size_t row)
+{
+    if (row > UINT32_MAX) {
+        return false;
+    }
+
+    if (buffer->count == buffer->capacity) {
+        const size_t max_capacity = SIZE_MAX / sizeof(*buffer->items);
+        size_t new_capacity;
+
+        if (buffer->capacity == 0) {
+            new_capacity = max_capacity < INITIAL_SWAP_CAPACITY
+                ? max_capacity
+                : INITIAL_SWAP_CAPACITY;
+        } else if (buffer->capacity > max_capacity / 2) {
+            new_capacity = max_capacity;
+        } else {
+            new_capacity = buffer->capacity * 2;
+        }
+
+        if (new_capacity <= buffer->capacity) {
+            return false;
+        }
+
+        AdjacentSwap *items = realloc(
+            buffer->items,
+            new_capacity * sizeof(*buffer->items)
+        );
+
+        if (items == NULL) {
+            return false;
+        }
+
+        buffer->items = items;
+        buffer->capacity = new_capacity;
+    }
+
+    buffer->items[buffer->count++] = (AdjacentSwap){
+        .row = (uint32_t)row,
+    };
+    return true;
+}
+
+static void swap_tokens(SignalToken *top, SignalToken *bottom)
+{
     SignalToken tmp = *top;
     *top = *bottom;
     *bottom = tmp;
 }
 
-/*
- * Build a routing program, not a second token representation.
- *
- * SignalToken.token_id is the identity used to match source with target.
- * AdjacentSwap deliberately stores only a row: it says where two complete
- * SignalToken objects must exchange places, never which tokens they contain.
- *
- * The temporary array is the only mutable permutation. source and target are
- * read-only specifications; result records every move applied to that copy.
- */
 bool yang_zhang_permutation_build(
     const SignalToken *source,
     const SignalToken *target,
@@ -30,9 +107,7 @@ bool yang_zhang_permutation_build(
 )
 {
     SignalToken *tmp = NULL;
-    AdjacentSwap *result = NULL;
-    size_t result_count = 0;
-    size_t result_capacity = 0;
+    SwapBuffer swaps = {0};
 
     if (out_swaps == NULL || out_swap_count == NULL) {
         return false;
@@ -53,25 +128,9 @@ bool yang_zhang_permutation_build(
         return false;
     }
 
-    /* Ambiguous identities are invalid: routing duplicate IDs is undefined. */
-    for (size_t i = 0; i < signal_count; ++i) {
-        if ((source[i].kind != SIGNAL_VARIABLE &&
-             source[i].kind != SIGNAL_REDUNDANT) ||
-            (target[i].kind != SIGNAL_VARIABLE &&
-             target[i].kind != SIGNAL_REDUNDANT) ||
-            (source[i].kind == SIGNAL_VARIABLE &&
-             source[i].occurrence >= 3u) ||
-            (target[i].kind == SIGNAL_VARIABLE &&
-             target[i].occurrence >= 3u)) {
-            return false;
-        }
-
-        for (size_t j = i + 1; j < signal_count; ++j) {
-            if (source[i].token_id == source[j].token_id ||
-                target[i].token_id == target[j].token_id) {
-                return false;
-            }
-        }
+    if (!tokens_are_valid_and_unique(source, signal_count) ||
+        !tokens_are_valid_and_unique(target, signal_count)) {
+        return false;
     }
 
     tmp = malloc(signal_count * sizeof(*tmp));
@@ -94,82 +153,34 @@ bool yang_zhang_permutation_build(
             goto fail;
         }
 
-        if (tmp[j].kind != target[i].kind) {
+        if (!tokens_match(&tmp[j], &target[i])) {
             goto fail;
         }
 
-        if (tmp[j].kind == SIGNAL_VARIABLE &&
-            (tmp[j].variable != target[i].variable ||
-             tmp[j].occurrence != target[i].occurrence)) {
-            goto fail;
-        }
-
-        /* Bubble that token upward and record the same adjacent moves. */
         while (j > i) {
             const size_t row = j - 1;
 
-            if (row > UINT32_MAX) {
+            if (!swap_buffer_append(&swaps, row)) {
                 goto fail;
             }
 
-            if (result_count == result_capacity) {
-                const size_t max_capacity =
-                    SIZE_MAX / sizeof(*result);
-                size_t new_capacity;
-
-                if (result_capacity == 0) {
-                    new_capacity =
-                        max_capacity < 16 ? max_capacity : 16;
-                } else if (result_capacity > max_capacity / 2) {
-                    new_capacity = max_capacity;
-                } else {
-                    new_capacity = result_capacity * 2;
-                }
-
-                if (new_capacity <= result_capacity) {
-                    goto fail;
-                }
-
-                AdjacentSwap *grown = realloc(
-                    result,
-                    new_capacity * sizeof(*result)
-                );
-
-                if (grown == NULL) {
-                    goto fail;
-                }
-
-                result = grown;
-                result_capacity = new_capacity;
-            }
-
-            result[result_count++] = (AdjacentSwap){
-                .row = (uint32_t)row,
-            };
-
-            single_swap(&tmp[row], &tmp[row + 1]);
+            swap_tokens(&tmp[row], &tmp[row + 1]);
             --j;
         }
     }
 
     free(tmp);
 
-    *out_swaps = result;
-    *out_swap_count = result_count;
+    *out_swaps = swaps.items;
+    *out_swap_count = swaps.count;
     return true;
 
 fail:
-    free(result);
+    free(swaps.items);
     free(tmp);
     return false;
 }
 
-/*
- * Execute the routing program in place.
- * signals owns the mutable SignalToken sequence; swaps is a read-only list of
- * row operations. This function neither allocates memory nor interprets token
- * identities: it validates the rows, then moves the complete structs.
- */
 bool yang_zhang_permutation_apply(
     SignalToken *signals,
     size_t signal_count,
@@ -199,10 +210,9 @@ bool yang_zhang_permutation_apply(
         }
     }
 
-    /* AdjacentSwap has no token semantics; it moves complete structs by row. */
     for (size_t i = 0; i < swap_count; ++i) {
         const size_t row = swaps[i].row;
-        single_swap(&signals[row], &signals[row + 1]);
+        swap_tokens(&signals[row], &signals[row + 1]);
     }
 
     return true;
