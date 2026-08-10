@@ -1,5 +1,15 @@
 # Yang-Zhang reduction implementation notes
 
+## Document role
+
+This is the living record of reduction-specific conventions adopted by the
+implementation. It documents indexing, geometry, project adaptations, and the
+correctness obligations that must become regression tests.
+
+It is not the repository roadmap or a second architecture specification. The
+public headers and tests define implemented behavior; the architecture PDF
+describes the broader future design.
+
 This document records both:
 
 1. conventions inherited from Yang-Zhang;
