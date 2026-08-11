@@ -83,6 +83,7 @@ static void test_lifetime_and_initial_state(void)
     assert(region_init(&region, 3, 2));
     assert(region.width == 3);
     assert(region.height == 2);
+    assert(region.cell_count == 6);
     assert(region.cells != NULL);
 
     for (int32_t y = 0; y < region.height; ++y) {
@@ -101,6 +102,7 @@ static void test_lifetime_and_initial_state(void)
     region_destroy(&region);
     assert(region.width == 0);
     assert(region.height == 0);
+    assert(region.cell_count == 0);
     assert(region.cells == NULL);
 
     region_destroy(&region);
@@ -141,6 +143,44 @@ static void test_coordinate_api_exhaustively(void)
 
     Region destroyed = {0};
     assert(!region_in_bounds(&destroyed, 0, 0));
+
+    region_destroy(&region);
+}
+
+static void test_region_validation(void)
+{
+    Region region = {0};
+    assert(!region_validate(NULL));
+    assert(!region_validate(&region));
+
+    assert(region_init(&region, 2, 1));
+    assert(region_validate(&region));
+    assert(region_set_active(&region, 0, 0, true));
+    assert(region_set_active(&region, 1, 0, true));
+    assert(region_validate(&region));
+
+    region.cells[0].boundary[E] = COLOR_0;
+    assert(!region_validate(&region));
+    region.cells[0].boundary[E] = COLOR_NONE;
+
+    region.cells[0].boundary[N] = (ColorId)COLOR_COUNT;
+    assert(!region_validate(&region));
+    region.cells[0].boundary[N] = COLOR_NONE;
+    assert(region_validate(&region));
+
+    const int32_t original_width = region.width;
+    region.width = original_width + 1;
+    assert(!region_validate(&region));
+    assert(!region_in_bounds(&region, 0, 0));
+    assert(region_cell(&region, 0, 0) == NULL);
+    region.width = original_width;
+
+    const size_t original_cell_count = region.cell_count;
+    region.cell_count = original_cell_count - 1;
+    assert(!region_validate(&region));
+    assert(region_cell_const(&region, 0, 0) == NULL);
+    region.cell_count = original_cell_count;
+    assert(region_validate(&region));
 
     region_destroy(&region);
 }
@@ -245,6 +285,7 @@ int main(void)
 {
     test_lifetime_and_initial_state();
     test_coordinate_api_exhaustively();
+    test_region_validation();
     test_deterministic_api_stress();
 
     puts("test_region: OK");

@@ -8,6 +8,7 @@ typedef uint8_t ColorId;
 typedef uint8_t TileId;
 
 #define COLOR_NONE ((ColorId)UINT8_MAX)
+#define TILE_NONE  ((TileId)UINT8_MAX)
 
 /* =========================
  * Directions

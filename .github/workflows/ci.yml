@@ -21,6 +21,47 @@ jobs:
       - name: Build and test
         run: make check
 
+  strict-compilers:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Clang
+        if: matrix.compiler == 'clang'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang
+
+      - name: Strict build and tests
+        run: make strict-check CC=${{ matrix.compiler }}
+
+  sanitizers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: AddressSanitizer and UndefinedBehaviorSanitizer
+        run: make sanitizer-check CC=gcc
+
+  static-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: GCC static analyzer
+        run: make analyzer-check CC=gcc
+
   dynamic-analysis:
     runs-on: ubuntu-latest
 

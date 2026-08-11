@@ -64,19 +64,27 @@ Implemented and tested as of 11 August 2026:
 - canonical in-memory Cubic Monotone 1-in-3 SAT representation and
   builder-side domain validation;
 - transactional Yang–Zhang formula-to-region construction, including exact
-  swap-trace ownership, dimensions, the complete active mask, and all exposed
-  boundary colors;
+  swap-trace ownership, dimensions, the paper-shaped simply connected active
+  mask, and all exposed boundary colors;
 - minimal dense row-major `Region` storage, access, and boundary constraints;
-- C regression tests, including deterministic randomized checks for
-  permutations, the public `Region` API, and complete formula-to-region
-  reductions;
-- C17/OpenMP build scaffold and GitHub Actions CI.
+- independent verification of complete dense tilings, including region,
+  boundary, inactive-cell, tile-ID, and adjacency validation;
+- deterministic native serial solver with private compatibility masks,
+  bitmask domains, propagation, MRV search, an undo trail, and mandatory
+  independent validation of every SAT witness;
+- optional solver metrics, a renderable best failed leaf for UNSAT, and a
+  capped binary failed-leaf trace backed by `mmap`;
+- C regression tests, deterministic fuzzing against brute-force and Boolean
+  oracles, large-region stress cases, and end-to-end Yang-Zhang SAT/UNSAT
+  checks;
+- C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
+  ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
 Not implemented yet:
 
 - Cubic Monotone 1-in-3 SAT text parsing;
-- independent tiling verifier;
-- native serial and OpenMP solvers;
+- isolated solver-level anchor/crossover gadget regressions;
+- native OpenMP solver;
 - Z3 Boolean and tiling models;
 - square-to-hex translation and verification;
 - JSON export and renderer integration.
@@ -88,14 +96,13 @@ does not indicate that the corresponding feature is implemented.
 
 Development proceeds through small, testable modules:
 
-1. implement an independent verifier for hand-built regions and tilings;
-2. add the Cubic Monotone 1-in-3 SAT text parser;
-3. implement the serial native solver and validate every witness;
-4. add solver-level tests for forced forwarders, anchors, and crossovers;
-5. add the Z3 cross-checks;
-6. introduce OpenMP only after the serial baseline is stable;
-7. implement and verify the square-to-hex translation;
-8. stabilize JSON and renderer integration last.
+1. add the Cubic Monotone 1-in-3 SAT text parser;
+2. add isolated solver-level integration tests for anchors and crossovers;
+3. add the Z3 cross-checks;
+4. profile the serial baseline on larger reduction instances;
+5. introduce OpenMP from measured serial split points;
+6. implement and verify the square-to-hex translation;
+7. stabilize JSON and renderer integration last.
 
 The implementation follows a deliberately small design rule: each datum has one
 owner, derived state is computed when needed, and future metadata is not added to
@@ -123,6 +130,11 @@ make serial
 make openmp
 make c-check
 make python-check
+make strict-check
+make sanitizer-check
+make analyzer-check
+make valgrind-check
+make cachegrind-check
 ```
 
 ## Repository layout
@@ -154,6 +166,12 @@ legacy/          frozen experimental code
   the implementation contract for the formula-to-region builder, including
   ownership, signal routing, crossover orientation, offsets, and the complete
   boundary-color template.
+- [`docs/serial_solver_implementation_guide.md`](docs/serial_solver_implementation_guide.md)
+  records the implemented contract for the independent verifier,
+  deterministic serial solver, optional metrics, UNSAT diagnostic snapshot,
+  and mmap leaf trace.
+- [`docs/references.md`](docs/references.md) records authoritative paper links,
+  their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)
   is the initial, future-facing architecture specification. Its proposed data
   structures are design sketches, not normative public APIs. Current headers

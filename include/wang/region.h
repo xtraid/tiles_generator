@@ -26,6 +26,7 @@ typedef struct {
 typedef struct {
     int32_t width;
     int32_t height;
+    size_t cell_count;
     RegionCell *cells;
 } Region;
 
@@ -60,6 +61,14 @@ const RegionCell *region_cell_const(
     int32_t x,
     int32_t y
 );
+
+/*
+ * Validate dimensions, allocation extent, colors, and boundary-placement
+ * invariants. Callers may inspect Region metadata but must not modify width,
+ * height, cell_count, or cells directly after region_init().
+ * This accepts disconnected regions and holes; those are valid geometry.
+ */
+bool region_validate(const Region *region);
 
 /*
  * Change whether a cell belongs to the region while building its geometry.

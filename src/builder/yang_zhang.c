@@ -7,6 +7,7 @@ static bool reduction_is_destroyed(const YangZhangReduction *reduction)
     return reduction != NULL
         && reduction->region.width == 0
         && reduction->region.height == 0
+        && reduction->region.cell_count == 0
         && reduction->region.cells == NULL
         && reduction->swaps == NULL
         && reduction->swap_count == 0;
@@ -145,10 +146,30 @@ fail:
     return false;
 }
 
-static bool activate_rectangle(Region *region)
+/*
+ * The paper's clause area contains one, two, two, then zero cells in each
+ * four-row group. The returned column includes every band to its left.
+ */
+static int32_t last_active_x(const Region *region, int32_t y)
+{
+    switch (y % 4) {
+    case 0:
+        return region->width - 2;
+    case 1:
+    case 2:
+        return region->width - 1;
+    case 3:
+        return region->width - 3;
+    }
+
+    return -1;
+}
+
+static bool activate_paper_region(Region *region)
 {
     for (int32_t y = 0; y < region->height; ++y) {
-        for (int32_t x = 0; x < region->width; ++x) {
+        const int32_t row_end = last_active_x(region, y);
+        for (int32_t x = 0; x <= row_end; ++x) {
             if (!region_set_active(region, x, y, true)) {
                 return false;
             }
@@ -158,31 +179,29 @@ static bool activate_rectangle(Region *region)
     return true;
 }
 
-static bool paint_default_perimeter(Region *region)
+static bool paint_exposed_boundary(Region *region)
 {
-    for (int32_t x = 0; x < region->width; ++x) {
-        if (!region_set_boundary(region, x, 0, N, COLOR_B) ||
-            !region_set_boundary(
-                region,
-                x,
-                region->height - 1,
-                S,
-                COLOR_B
-            )) {
-            return false;
-        }
-    }
+    static const int32_t dx[DIR_COUNT] = { 0, 1, 0, -1 };
+    static const int32_t dy[DIR_COUNT] = { -1, 0, 1, 0 };
 
     for (int32_t y = 0; y < region->height; ++y) {
-        if (!region_set_boundary(region, 0, y, W, COLOR_B) ||
-            !region_set_boundary(
-                region,
-                region->width - 1,
-                y,
-                E,
-                COLOR_B
-            )) {
-            return false;
+        for (int32_t x = 0; x < region->width; ++x) {
+            const RegionCell *cell = region_cell_const(region, x, y);
+            if (cell == NULL || !cell->active) {
+                continue;
+            }
+
+            for (Dir dir = N; dir < DIR_COUNT; ++dir) {
+                const RegionCell *neighbor = region_cell_const(
+                    region,
+                    x + dx[dir],
+                    y + dy[dir]
+                );
+                if ((neighbor == NULL || !neighbor->active) &&
+                    !region_set_boundary(region, x, y, dir, COLOR_B)) {
+                    return false;
+                }
+            }
         }
     }
 
@@ -220,25 +239,44 @@ static bool paint_variable_boundary(
 
 static bool paint_clause_boundary(Region *region, size_t clause_count)
 {
-    const int32_t x = region->width - 1;
+    const int32_t inner_x = region->width - 2;
+    const int32_t outer_x = region->width - 1;
 
     for (size_t clause = 0; clause < clause_count; ++clause) {
         const int32_t first_y = (int32_t)(4u * clause);
 
-        if (!region_set_boundary(region, x, first_y, E, COLOR_0_PRIME) ||
+        if (!region_set_boundary(
+                region,
+                inner_x,
+                first_y,
+                E,
+                COLOR_0_PRIME
+            ) ||
             !region_set_boundary(
                 region,
-                x,
+                outer_x,
                 first_y + 1,
                 E,
                 COLOR_0_PRIME
             ) ||
-            !region_set_boundary(region, x, first_y + 2, E, COLOR_1)) {
+            !region_set_boundary(
+                region,
+                outer_x,
+                first_y + 2,
+                E,
+                COLOR_1
+            )) {
             return false;
         }
 
         if (clause + 1u < clause_count &&
-            !region_set_boundary(region, x, first_y + 3, E, COLOR_0)) {
+            !region_set_boundary(
+                region,
+                inner_x - 1,
+                first_y + 3,
+                E,
+                COLOR_0
+            )) {
             return false;
         }
     }
@@ -329,8 +367,8 @@ bool yang_zhang_build(
             &width
         ) ||
         !region_init(&region, width, height) ||
-        !activate_rectangle(&region) ||
-        !paint_default_perimeter(&region) ||
+        !activate_paper_region(&region) ||
+        !paint_exposed_boundary(&region) ||
         !paint_variable_boundary(&region, formula->variable_count) ||
         !paint_clause_boundary(&region, formula->clause_count) ||
         !paint_crossover_boundaries(

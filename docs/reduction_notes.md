@@ -122,22 +122,52 @@ For the paper example:
 width = 1 + 2 + 89 + 2 + 2 = 96
 ```
 
-## 5. Correctness obligation introduced by the convention
+## 5. Neutrality of the explicit forwarder bands
 
-Because the forwarder bands are an adaptation made by this project, later region-level
-tests must establish that they are neutral signal extensions.
+The two forwarder bands are an adaptation made by this project, so their
+neutrality must follow from the actual 23-tile construction rather than being
+attributed to the paper.  It follows locally from the edge colors.
 
-For each signal value admitted by the construction, the band must:
+For `s` in `{0, 1}`, the atomic forwarder `Fs` has edges
 
-- propagate the same value from its input edge to its output edge;
-- introduce no additional signal choice;
-- preserve redundant rows as required;
-- not alter SAT/UNSAT of the constructed tiling instance.
+```text
+(N, E, S, W) = (B, s, B, s).
+```
 
-The concrete `Region` builder now has black-box tests for the complete active mask,
-boundary encoding, and exact swap trace. Once a reference solver exists, small
-gadget-level tests must additionally establish the forced-tiling behavior of the
-forwarder bands and isolated crossover blocks.
+The internal glue colors make every multi-cell generalized tile indivisible:
+an occurrence of one of its atomic parts forces the other parts.  In either
+explicit band, the north and south boundary colors are `B`, there is no `L` or
+`R` boundary seed, and the neighboring completed gadgets expose only signal
+colors `0` or `1` at the band interface.  Inspecting the remaining tile
+families then excludes them as follows:
+
+- a variable tile requires `V` on its west side, and no tile has `V` on its
+  east side, so it can occur only at the west variable boundary;
+- a clause tile exposes `0'` on its east side, and no tile has `0'` on its west
+  side, so the corresponding generalized tile can occur only at the east
+  clause boundary;
+- an `L` anchor or the lower part of a crossover forces an `L` path down to an
+  `L` boundary seed, which the band does not have;
+- an `R` anchor or the upper part of a crossover forces an `R` path up to an
+  `R` boundary seed, which the band does not have.
+
+Thus only `F0` and `F1` can occupy a band cell.  If the west edge of a row is
+`s`, matching selects `Fs`, whose east edge is again `s`.  Induction over the
+band width gives a unique tiling of that row and preserves its signal.  A
+redundant row is the special case `s = 0`.
+
+Consequently every tiling without the extra columns has exactly one extension
+through either explicit band, and every tiling with a band restricts to the
+same interface signals when the band is removed.  Adding the bands therefore
+introduces no choice and does not change tileability, hence it cannot change
+SAT/UNSAT of the reduced instance.
+
+The concrete `Region` builder has black-box tests for the complete active mask,
+boundary encoding, and exact swap trace. End-to-end serial-solver regressions
+now compare complete SAT and UNSAT reductions with an independent Boolean
+oracle; these are regression checks, not the proof of band neutrality. Isolated
+crossover blocks, including their anchor paths and implicit triangular
+forwarder areas, remain a separate focused integration obligation.
 
 ## 6. Dimension calculator and completed builder
 
@@ -157,8 +187,9 @@ reduction stages:
 - validation of the canonical in-memory formula;
 - unique occurrence and redundant signal tokens;
 - source/target permutation construction;
-- a fully active rectangular `Region`;
-- complete exterior boundary colors;
+- a dense bounding box with the paper's simply connected clause staircase as
+  its active mask;
+- complete colors on every exposed side, including the staircase notches;
 - variable, clause, and isolated crossover boundary markers;
 - transactional transfer of the exact adjacent-swap trace.
 

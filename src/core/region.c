@@ -15,6 +15,7 @@ bool region_init(Region *region, int32_t width, int32_t height)
 
     region->width = 0;
     region->height = 0;
+    region->cell_count = 0;
     region->cells = NULL;
 
     if (width <= 0 || height <= 0) {
@@ -49,6 +50,7 @@ bool region_init(Region *region, int32_t width, int32_t height)
 
     region->width = width;
     region->height = height;
+    region->cell_count = cell_count;
     region->cells = cells;
 
     return true;
@@ -63,6 +65,7 @@ void region_destroy(Region *region)
     free(region->cells);
     region->width = 0;
     region->height = 0;
+    region->cell_count = 0;
     region->cells = NULL;
 }
 
@@ -71,14 +74,29 @@ void region_destroy(Region *region)
  * Coordinate access
  * ========================= */
 
+static bool region_storage_is_consistent(const Region *region)
+{
+    if (region == NULL || region->cells == NULL ||
+        region->width <= 0 || region->height <= 0) {
+        return false;
+    }
+
+    const size_t width = (size_t)region->width;
+    const size_t height = (size_t)region->height;
+    if (height > SIZE_MAX / width) {
+        return false;
+    }
+
+    const size_t cell_count = width * height;
+    return cell_count == region->cell_count &&
+        cell_count <= SIZE_MAX / sizeof(*region->cells);
+}
+
 bool region_in_bounds(const Region *region, int32_t x, int32_t y)
 {
-    return region != NULL
-        && region->cells != NULL
-        && x >= 0
-        && y >= 0
-        && x < region->width
-        && y < region->height;
+    return region_storage_is_consistent(region) &&
+        x >= 0 && y >= 0 &&
+        x < region->width && y < region->height;
 }
 
 size_t region_index(const Region *region, int32_t x, int32_t y)
@@ -106,6 +124,48 @@ const RegionCell *region_cell_const(
     }
 
     return &region->cells[region_index(region, x, y)];
+}
+
+bool region_validate(const Region *region)
+{
+    if (!region_storage_is_consistent(region)) {
+        return false;
+    }
+
+    static const int32_t dx[DIR_COUNT] = { 0, 1, 0, -1 };
+    static const int32_t dy[DIR_COUNT] = { -1, 0, 1, 0 };
+
+    for (int32_t y = 0; y < region->height; ++y) {
+        for (int32_t x = 0; x < region->width; ++x) {
+            const RegionCell *cell =
+                &region->cells[region_index(region, x, y)];
+
+            for (Dir dir = N; dir < DIR_COUNT; ++dir) {
+                const ColorId color = cell->boundary[dir];
+                if (color != COLOR_NONE && color >= COLOR_COUNT) {
+                    return false;
+                }
+                if (!cell->active) {
+                    if (color != COLOR_NONE) {
+                        return false;
+                    }
+                    continue;
+                }
+
+                const RegionCell *neighbor = region_cell_const(
+                    region,
+                    x + dx[dir],
+                    y + dy[dir]
+                );
+                if (neighbor != NULL && neighbor->active &&
+                    color != COLOR_NONE) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 

@@ -14,8 +14,9 @@ the rationale, invariants, and correctness obligations behind them.
 Implementation status as of 11 August 2026: the formula representation, public
 reduction API, validation, routing, region construction, boundary coloring,
 ownership behavior, and required builder tests are implemented. The later
-solver-level integration obligation in Section 11.4 remains pending until a
-reference solver exists.
+solver-level integration suite now checks complete SAT and UNSAT reductions
+against an independent Boolean oracle. The narrower isolated-gadget obligation
+in Section 11.4 remains pending.
 
 Primary source:
 
@@ -33,7 +34,7 @@ rendering.
 `yang_zhang` is a deterministic reduction builder:
 
 ```text
-validated canonical CM1-in-3 formula -> colored rectangular Region
+validated canonical CM1-in-3 formula -> colored simply connected Region
                                       + exact adjacent-swap trace
 ```
 
@@ -276,9 +277,23 @@ width =
 Use `yang_zhang_compute_dimensions()` as the only implementation of this
 arithmetic.
 
-The region produced by this builder is a full rectangle: every cell in its
-`width * height` bounding box is active. The generic `Region` type remains
-capable of describing non-rectangular regions for other consumers.
+`width` and `height` describe a dense bounding box, not a filled rectangle.
+The clause area gives the right edge the staircase shape shown in Figures 2
+and 3 of the paper. Let `clause_x = width - 2`, the first of the two clause
+columns. The last active column of row `y` is:
+
+| `y % 4` | Role | Last active column |
+| --- | --- | --- |
+| `0` | first clause signal | `clause_x` |
+| `1` | second clause signal | `width - 1` |
+| `2` | third clause signal | `width - 1` |
+| `3` | redundant separator | `clause_x - 1` |
+
+The final row always has role `2`, because `height = 4n - 1`. Every cell from
+column zero through the last active column belongs to the region; later cells
+in the bounding box remain inactive. This mask is simply connected and leaves
+exactly the one-, two-, two-cell clause shape required to move a true signal
+down by zero, one, or two rows.
 
 ## 7. Crossover blocks
 
@@ -342,18 +357,14 @@ A finished Yang-Zhang region has a color on every exposed unit side. No
 exposed side remains `COLOR_NONE`. All sides between two active cells remain
 unconstrained in `Region`; their colors are determined only by tile matching.
 
-Apply colors in this order, after every cell has been activated.
+Apply colors in this order, after the complete active mask has been built.
 
-### 8.1 Default perimeter
+### 8.1 Default exposed boundary
 
-Set every exposed side of the rectangle to `COLOR_B`:
-
-- `N` for all cells on row `0`;
-- `S` for all cells on row `height - 1`;
-- `W` for all cells on column `0`;
-- `E` for all cells on column `width - 1`.
-
-At corners, the two exposed sides are separate constraints and both are set.
+Walk every active cell and set each side touching the outside of the bounding
+box or an inactive cell to `COLOR_B`. Sides shared by two active cells remain
+`COLOR_NONE`. At corners and staircase notches, every exposed unit side is a
+separate constraint.
 
 ### 8.2 Left variable boundary
 
@@ -380,14 +391,18 @@ For clause `c`, its three rows are:
 y = 4c, 4c + 1, 4c + 2
 ```
 
-Set their east sides respectively to:
+Let `clause_x = width - 2`. Set the east boundary at these cells:
 
 ```text
-COLOR_0_PRIME, COLOR_0_PRIME, COLOR_1
+(clause_x, y)             -> COLOR_0_PRIME
+(width - 1, y + 1)        -> COLOR_0_PRIME
+(width - 1, y + 2)        -> COLOR_1
 ```
 
 If `c` is not the final clause, row `4c + 3` is redundant; set its east side
-to `COLOR_0`.
+at `(clause_x - 1, 4c + 3)` to `COLOR_0`. These coordinates are the last
+active cells of their rows, so all four assignments are genuine boundary
+constraints.
 
 The resulting repeating pattern is:
 
@@ -402,9 +417,9 @@ Walk the crossover blocks in swap order and overwrite only:
 - the top-right side of each block from `COLOR_B` to `COLOR_R`;
 - the bottom-left side of each block from `COLOR_B` to `COLOR_L`.
 
-Variable, clause, and explicit forwarder bands keep `COLOR_B` on their north
-and south boundaries. There are no colors on internal vertical seams between
-layout bands or between crossover blocks.
+All other exposed sides, including the horizontal sides created by the clause
+staircase, remain `COLOR_B`. There are no colors on internal seams between two
+active cells, layout bands, or crossover blocks.
 
 ## 9. Transactional build sequence
 
@@ -419,8 +434,8 @@ Implement `yang_zhang_build()` in this order:
    a source copy into target;
 7. call `yang_zhang_compute_dimensions()`;
 8. initialize a local temporary `Region`;
-9. activate all cells, iterating row-major for locality;
-10. set the default `COLOR_B` perimeter;
+9. activate the paper-shaped mask, iterating row-major for locality;
+10. set every exposed side to the default `COLOR_B`;
 11. overwrite the left variable boundary;
 12. overwrite the right clause boundary;
 13. walk swaps and overwrite crossover `L/R` markers;
@@ -456,9 +471,11 @@ static bool build_signal_sequences(
     size_t *out_signal_count
 );
 
-static bool activate_rectangle(Region *region);
+static int32_t last_active_x(const Region *region, int32_t y);
 
-static bool paint_default_perimeter(Region *region);
+static bool activate_paper_region(Region *region);
+
+static bool paint_exposed_boundary(Region *region);
 
 static bool paint_variable_boundary(
     Region *region,
@@ -495,10 +512,10 @@ Use one variable and one clause `{0, 0, 0}`:
 - no redundant row;
 - no swaps;
 - project width `1 + 2 + 0 + 2 + 2 == 7`;
-- all cells active;
+- row lengths `6,7,7`, implementing the one-, two-, two-cell clause area;
 - west boundary is `V,V,V`;
 - east boundary is `0',0',1`;
-- north and south boundaries are all `B`;
+- every other exposed side is `B`;
 - all non-exposed sides remain `COLOR_NONE`.
 
 This fixture is a valid reduction input even if its Boolean instance is
@@ -525,7 +542,8 @@ Assert:
 - every crossover block has `R` at its top-right and `L` at its bottom-left;
 - all other north/south sides are `B`;
 - left and right boundary patterns match Section 8 exactly;
-- all cells are active and there are no internal boundary constraints.
+- the clause staircase matches Section 6, inactive cells have no constraints,
+  and there are no boundary constraints between active cells.
 
 ### 11.3 Invalid and adversarial input
 
@@ -550,11 +568,15 @@ under the existing Memcheck, Cachegrind, ASan, and UBSan workflows.
 
 ### 11.4 Later integration obligation
 
-Once a reference solver exists, test small isolated crossover regions through
-the public solver/verifier path. The test must establish that boundary markers
+The public solver/verifier path now checks complete Yang-Zhang reductions
+against an independent Boolean oracle. Add small isolated crossover regions as
+the remaining focused regression. That test must establish that boundary markers
 force the requested adjacent swap while the remaining triangular areas contain
 only compatible forwarders/anchors. Builder tests alone inspect encoding; they
-cannot prove the complete forced-tiling property.
+cannot prove the complete forced-tiling property. The separate two-column
+forwarder bands do not depend on this future test for their correctness: their
+neutrality follows directly from the tile-edge exclusion argument in
+`reduction_notes.md`, Section 5.
 
 ## 12. Decisions that must not be silently changed
 
@@ -569,8 +591,8 @@ cannot prove the complete forced-tiling property.
   stored as metadata.
 - Two explicit forwarder columns remain before and after the crossover chain.
 - The builder colors only exposed region sides, never internal cell edges.
-- The produced Yang-Zhang region is a fully active rectangle with a completely
-  colored exterior boundary.
+- The produced Yang-Zhang region has the paper's clause staircase and every
+  exposed unit side is colored.
 - The result owns the exact generated swap array; solver correctness must not
   depend on it.
 - Construction is transactional and leaves no partial public output.

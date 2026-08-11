@@ -61,16 +61,20 @@ connected instances, and its tests must verify that property.
 1. Minimal `Region` storage, lifetime, access, and boundary tests (complete).
 2. Canonical Cubic Monotone 1-in-3 SAT representation, validation, and
    formula-to-region Yang-Zhang builder (complete).
-3. Independent verifier exercised on hand-built regions and tilings.
-4. Correct deterministic serial solver; every witness passes the verifier.
-5. Solver-level tests for the forced forwarder, anchor, and crossover gadgets.
+3. Independent verifier exercised on hand-built regions and tilings
+   (complete).
+4. Correct deterministic serial solver; every witness passes the verifier
+   (complete).
+5. Solver-level regression tests for the proven explicit forwarder bands and
+   integration tests for the anchor and crossover gadgets.
 6. Z3 Boolean and tiling cross-checks on small regression instances.
 7. OpenMP planning only after the serial solver is stable and profiled.
 8. Square-to-hex verification, JSON, and rendering after the square core.
 
-`TaskPlan`, zone ownership, cached compatibility structures, diagnostic IR, and
-renderer schemas are deliberately deferred until the preceding module provides a
-real use case.
+Private compatibility masks now have a concrete consumer in the serial solver
+and remain derived from `TILESET`. `TaskPlan`, zone ownership, diagnostic IR,
+and renderer schemas remain deferred until a preceding module provides a real
+use case.
 
 ## Definition of done for a module
 

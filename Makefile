@@ -9,6 +9,13 @@ CPPFLAGS ?= -Iinclude
 CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -O2
 DEPFLAGS ?= -MMD -MP
 OPENMP_FLAGS ?= -fopenmp
+STRICT_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -Werror -O2
+SANITIZER_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -Werror \
+	-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
+ANALYZER_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -Werror \
+	-O1 -fanalyzer
+ASAN_OPTIONS ?= detect_leaks=1:strict_string_checks=1
+UBSAN_OPTIONS ?= print_stacktrace=1:halt_on_error=1
 
 BUILD_DIR := build
 LIB_DIR := $(BUILD_DIR)/lib
@@ -18,6 +25,7 @@ SERIAL_SOURCES := \
 	src/core/region.c \
 	src/builder/permutation.c \
 	src/builder/yang_zhang.c \
+	src/solver/failed_leaf_trace.c \
 	src/solver/solver_serial.c \
 	src/verify/verify_tiling.c \
 	src/io/json.c
@@ -30,15 +38,17 @@ OPENMP_OBJECT := $(BUILD_DIR)/$(OPENMP_SOURCE:.c=.o)
 SERIAL_DEPS := $(SERIAL_OBJECTS:.o=.d)
 OPENMP_DEP := $(OPENMP_OBJECT:.o=.d)
 
-PYTHON_TESTS := $(wildcard tests/python/test_*.py)
 C_TEST_SOURCES := $(wildcard tests/c/test_*.c)
 C_TEST_BINS := $(patsubst tests/c/%.c,$(BUILD_DIR)/tests/c/%,$(C_TEST_SOURCES))
+C_TEST_DEPS := $(addsuffix .d,$(C_TEST_BINS))
+PYTHON_TESTS := $(shell find tests/python -type f -name 'test_*.py' -print)
 
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
 .PHONY: all setup serial openmp check c-check python-check \
-	valgrind-check cachegrind-check clean
+	strict-check sanitizer-check analyzer-check valgrind-check \
+	cachegrind-check clean
 
 all: serial
 
@@ -55,7 +65,9 @@ $(SERIAL_LIBRARY): $(SERIAL_OBJECTS) | $(LIB_DIR)
 $(OPENMP_LIBRARY): $(SERIAL_OBJECTS) $(OPENMP_OBJECT) | $(LIB_DIR)
 	$(AR) rcs $@ $^
 
-$(BUILD_DIR)/src/parallel/solver_openmp.o: CFLAGS += $(OPENMP_FLAGS)
+$(OPENMP_OBJECT): $(OPENMP_SOURCE)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(OPENMP_FLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(@D)
@@ -66,7 +78,7 @@ $(LIB_DIR):
 
 $(BUILD_DIR)/tests/c/%: tests/c/%.c $(SERIAL_LIBRARY)
 	@mkdir -p $(@D)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $< $(SERIAL_LIBRARY) -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) $< $(SERIAL_LIBRARY) -o $@
 
 check: c-check openmp python-check
 
@@ -81,7 +93,22 @@ c-check: serial $(C_TEST_BINS)
 		done; \
 	fi
 
-valgrind-check: serial $(C_TEST_BINS)
+strict-check:
+	$(MAKE) clean
+	$(MAKE) c-check openmp CFLAGS="$(STRICT_CFLAGS)"
+
+sanitizer-check:
+	$(MAKE) clean
+	ASAN_OPTIONS="$(ASAN_OPTIONS)" UBSAN_OPTIONS="$(UBSAN_OPTIONS)" \
+		$(MAKE) c-check openmp CFLAGS="$(SANITIZER_CFLAGS)"
+
+analyzer-check:
+	$(MAKE) clean
+	$(MAKE) serial openmp CFLAGS="$(ANALYZER_CFLAGS)"
+
+valgrind-check:
+	$(MAKE) clean
+	$(MAKE) serial openmp $(C_TEST_BINS)
 	@set -e; \
 	for test in $(C_TEST_BINS); do \
 		echo "Running $$test under Valgrind"; \
@@ -93,7 +120,9 @@ valgrind-check: serial $(C_TEST_BINS)
 			$$test; \
 	done
 
-cachegrind-check: serial $(C_TEST_BINS)
+cachegrind-check:
+	$(MAKE) clean
+	$(MAKE) serial openmp $(C_TEST_BINS)
 	@mkdir -p $(BUILD_DIR)/cachegrind
 	@set -e; \
 	for test in $(C_TEST_BINS); do \
@@ -117,4 +146,4 @@ endif
 clean:
 	$(RM) -r $(BUILD_DIR)
 
--include $(SERIAL_DEPS) $(OPENMP_DEP)
+-include $(SERIAL_DEPS) $(OPENMP_DEP) $(C_TEST_DEPS)

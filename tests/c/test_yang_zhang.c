@@ -17,6 +17,7 @@ static void test_reduction_destroy_accepts_null_and_empty(void)
 
     assert(reduction.region.width == 0);
     assert(reduction.region.height == 0);
+    assert(reduction.region.cell_count == 0);
     assert(reduction.region.cells == NULL);
     assert(reduction.swaps == NULL);
     assert(reduction.swap_count == 0);
@@ -36,6 +37,7 @@ static void test_reduction_destroy_releases_and_resets_owned_storage(void)
 
     assert(reduction.region.width == 0);
     assert(reduction.region.height == 0);
+    assert(reduction.region.cell_count == 0);
     assert(reduction.region.cells == NULL);
     assert(reduction.swaps == NULL);
     assert(reduction.swap_count == 0);
@@ -64,6 +66,7 @@ static void assert_reduction_destroyed(const YangZhangReduction *reduction)
 {
     assert(reduction->region.width == 0);
     assert(reduction->region.height == 0);
+    assert(reduction->region.cell_count == 0);
     assert(reduction->region.cells == NULL);
     assert(reduction->swaps == NULL);
     assert(reduction->swap_count == 0);
@@ -85,30 +88,85 @@ static ColorId expected_clause_color(int32_t y)
     return COLOR_NONE;
 }
 
+static int32_t expected_last_active_x(const Region *region, int32_t y)
+{
+    switch (y % 4) {
+    case 0:
+        return region->width - 2;
+    case 1:
+    case 2:
+        return region->width - 1;
+    case 3:
+        return region->width - 3;
+    }
+
+    assert(false);
+    return -1;
+}
+
+static bool expected_active(const Region *region, int32_t x, int32_t y)
+{
+    return x <= expected_last_active_x(region, y);
+}
+
+static ColorId expected_boundary(
+    const Region *region,
+    const bool *top_is_r,
+    const bool *bottom_is_l,
+    int32_t x,
+    int32_t y,
+    Dir dir
+)
+{
+    static const int32_t dx[DIR_COUNT] = { 0, 1, 0, -1 };
+    static const int32_t dy[DIR_COUNT] = { -1, 0, 1, 0 };
+    const int32_t neighbor_x = x + dx[dir];
+    const int32_t neighbor_y = y + dy[dir];
+    const bool exposed = neighbor_x < 0 || neighbor_x >= region->width ||
+        neighbor_y < 0 || neighbor_y >= region->height ||
+        !expected_active(region, neighbor_x, neighbor_y);
+
+    ColorId color = exposed ? COLOR_B : COLOR_NONE;
+    if (dir == N && y == 0 && top_is_r[x]) {
+        color = COLOR_R;
+    } else if (dir == S && y == region->height - 1 && bottom_is_l[x]) {
+        color = COLOR_L;
+    } else if (dir == W && x == 0) {
+        color = y % 4 == 3 ? COLOR_0 : COLOR_V;
+    } else if (dir == E && x == expected_last_active_x(region, y)) {
+        color = expected_clause_color(y);
+    }
+
+    return color;
+}
+
 static void assert_region_encoding(
     const Region *region,
     const bool *top_is_r,
     const bool *bottom_is_l
 )
 {
+    assert(region_validate(region));
+
     for (int32_t y = 0; y < region->height; ++y) {
         for (int32_t x = 0; x < region->width; ++x) {
             const RegionCell *cell = region_cell_const(region, x, y);
             assert(cell != NULL);
-            assert(cell->active);
+            assert(cell->active == expected_active(region, x, y));
 
-            assert(cell->boundary[N] == (y == 0
-                ? (top_is_r[x] ? COLOR_R : COLOR_B)
-                : COLOR_NONE));
-            assert(cell->boundary[S] == (y == region->height - 1
-                ? (bottom_is_l[x] ? COLOR_L : COLOR_B)
-                : COLOR_NONE));
-            assert(cell->boundary[W] == (x == 0
-                ? (y % 4 == 3 ? COLOR_0 : COLOR_V)
-                : COLOR_NONE));
-            assert(cell->boundary[E] == (x == region->width - 1
-                ? expected_clause_color(y)
-                : COLOR_NONE));
+            for (Dir dir = N; dir < DIR_COUNT; ++dir) {
+                const ColorId expected = cell->active
+                    ? expected_boundary(
+                        region,
+                        top_is_r,
+                        bottom_is_l,
+                        x,
+                        y,
+                        dir
+                    )
+                    : COLOR_NONE;
+                assert(cell->boundary[dir] == expected);
+            }
         }
     }
 }
