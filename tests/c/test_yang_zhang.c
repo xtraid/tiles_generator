@@ -46,16 +46,11 @@ static void test_reduction_destroy_releases_and_resets_owned_storage(void)
     yang_zhang_reduction_destroy(&reduction);
 }
 
-static Cm13Formula one_variable_formula(
-    Cm13Variable variables[1],
-    Cm13Clause clauses[1]
-)
+static Cm13Formula one_variable_formula(Cm13Clause clauses[1])
 {
-    variables[0] = (Cm13Variable){ .id = 0 };
     clauses[0] = (Cm13Clause){ .variable_index = { 0, 0, 0 } };
 
     return (Cm13Formula){
-        .variables = variables,
         .variable_count = 1,
         .clauses = clauses,
         .clause_count = 1
@@ -208,9 +203,8 @@ static void assert_build_rejected(const Cm13Formula *formula)
 
 static void test_build_rejects_null_arguments(void)
 {
-    Cm13Variable variables[1];
     Cm13Clause clauses[1];
-    Cm13Formula formula = one_variable_formula(variables, clauses);
+    Cm13Formula formula = one_variable_formula(clauses);
     YangZhangReduction reduction = {0};
 
     assert(!yang_zhang_build(NULL, &reduction));
@@ -220,16 +214,11 @@ static void test_build_rejects_null_arguments(void)
 
 static void test_build_rejects_invalid_formula_domain(void)
 {
-    Cm13Variable variables[2] = {
-        { .id = 0 },
-        { .id = 1 }
-    };
     Cm13Clause clauses[2] = {
         { .variable_index = { 0, 0, 0 } },
         { .variable_index = { 1, 1, 1 } }
     };
     Cm13Formula formula = {
-        .variables = variables,
         .variable_count = 2,
         .clauses = clauses,
         .clause_count = 2
@@ -239,10 +228,6 @@ static void test_build_rejects_invalid_formula_domain(void)
     assert_build_rejected(&formula);
     formula.variable_count = 2;
 
-    formula.variables = NULL;
-    assert_build_rejected(&formula);
-    formula.variables = variables;
-
     formula.clauses = NULL;
     assert_build_rejected(&formula);
     formula.clauses = clauses;
@@ -250,10 +235,6 @@ static void test_build_rejects_invalid_formula_domain(void)
     formula.clause_count = 1;
     assert_build_rejected(&formula);
     formula.clause_count = 2;
-
-    variables[1].id = 7;
-    assert_build_rejected(&formula);
-    variables[1].id = 1;
 
     clauses[1].variable_index[2] = 2;
     assert_build_rejected(&formula);
@@ -269,10 +250,8 @@ static void test_build_rejects_invalid_formula_domain(void)
 
 static void test_build_rejects_variable_count_overflow(void)
 {
-    Cm13Variable variable = { .id = 0 };
     Cm13Clause clause = { .variable_index = { 0, 0, 0 } };
     const Cm13Formula formula = {
-        .variables = &variable,
         .variable_count = YANG_ZHANG_MAX_VARIABLES + 1u,
         .clauses = &clause,
         .clause_count = (size_t)YANG_ZHANG_MAX_VARIABLES + 1u
@@ -283,37 +262,28 @@ static void test_build_rejects_variable_count_overflow(void)
 
 static void test_failed_build_does_not_modify_formula_storage(void)
 {
-    Cm13Variable variables[2] = {
-        { .id = 0 }, { .id = 9 }
-    };
     Cm13Clause clauses[2] = {
         { .variable_index = { 0, 0, 0 } },
-        { .variable_index = { 1, 1, 1 } }
-    };
-    const Cm13Variable variables_before[2] = {
-        { .id = 0 }, { .id = 9 }
+        { .variable_index = { 1, 1, 0 } }
     };
     const Cm13Clause clauses_before[2] = {
         { .variable_index = { 0, 0, 0 } },
-        { .variable_index = { 1, 1, 1 } }
+        { .variable_index = { 1, 1, 0 } }
     };
     const Cm13Formula formula = {
-        .variables = variables,
         .variable_count = 2,
         .clauses = clauses,
         .clause_count = 2
     };
 
     assert_build_rejected(&formula);
-    assert(memcmp(variables, variables_before, sizeof(variables)) == 0);
     assert(memcmp(clauses, clauses_before, sizeof(clauses)) == 0);
 }
 
 static void test_build_rejects_non_destroyed_output(void)
 {
-    Cm13Variable variables[1];
     Cm13Clause clauses[1];
-    Cm13Formula formula = one_variable_formula(variables, clauses);
+    Cm13Formula formula = one_variable_formula(clauses);
     YangZhangReduction reduction = {
         .region = { .width = 1, .height = 0, .cells = NULL },
         .swaps = NULL,
@@ -326,10 +296,8 @@ static void test_build_rejects_non_destroyed_output(void)
 
 static void test_build_minimal_valid_formula(void)
 {
-    Cm13Variable variables[1];
     Cm13Clause clauses[1];
-    Cm13Formula formula = one_variable_formula(variables, clauses);
-    const Cm13Variable variables_before[1] = { variables[0] };
+    Cm13Formula formula = one_variable_formula(clauses);
     const Cm13Clause clauses_before[1] = { clauses[0] };
     YangZhangReduction reduction = {0};
     const bool top_is_r[7] = {false};
@@ -341,7 +309,6 @@ static void test_build_minimal_valid_formula(void)
     assert(reduction.swaps == NULL);
     assert(reduction.swap_count == 0);
     assert_region_encoding(&reduction.region, top_is_r, bottom_is_l);
-    assert(memcmp(variables, variables_before, sizeof(variables)) == 0);
     assert(memcmp(clauses, clauses_before, sizeof(clauses)) == 0);
 
     yang_zhang_reduction_destroy(&reduction);
@@ -390,16 +357,10 @@ static void test_dimensions_normal(void)
 
 static void test_build_paper_example(void)
 {
-    Cm13Variable variables[3] = {
-        { .id = 0 }, { .id = 1 }, { .id = 2 }
-    };
     Cm13Clause clauses[3] = {
         { .variable_index = { 0, 0, 2 } },
         { .variable_index = { 1, 1, 2 } },
         { .variable_index = { 0, 1, 2 } }
-    };
-    const Cm13Variable variables_before[3] = {
-        { .id = 0 }, { .id = 1 }, { .id = 2 }
     };
     const Cm13Clause clauses_before[3] = {
         { .variable_index = { 0, 0, 2 } },
@@ -407,7 +368,6 @@ static void test_build_paper_example(void)
         { .variable_index = { 0, 1, 2 } }
     };
     const Cm13Formula formula = {
-        .variables = variables,
         .variable_count = 3,
         .clauses = clauses,
         .clause_count = 3
@@ -465,7 +425,6 @@ static void test_build_paper_example(void)
     }
 
     assert_region_encoding(&reduction.region, top_is_r, bottom_is_l);
-    assert(memcmp(variables, variables_before, sizeof(variables)) == 0);
     assert(memcmp(clauses, clauses_before, sizeof(clauses)) == 0);
 
     yang_zhang_reduction_destroy(&reduction);
@@ -664,8 +623,6 @@ static void shuffle_indices(uint32_t *indices, size_t count)
 static void test_deterministic_canonical_formula_fuzz(void)
 {
     enum { MAX_VARIABLES = 6, ITERATIONS = 80 };
-    Cm13Variable variables[MAX_VARIABLES];
-    Cm13Variable variables_before[MAX_VARIABLES];
     Cm13Clause clauses[MAX_VARIABLES];
     Cm13Clause clauses_before[MAX_VARIABLES];
     uint32_t flattened[3 * MAX_VARIABLES];
@@ -678,7 +635,6 @@ static void test_deterministic_canonical_formula_fuzz(void)
         for (uint32_t variable = 0;
              variable < variable_count;
              ++variable) {
-            variables[variable] = (Cm13Variable){ .id = variable };
             for (size_t occurrence = 0; occurrence < 3; ++occurrence) {
                 flattened[3u * variable + occurrence] = variable;
             }
@@ -693,18 +649,12 @@ static void test_deterministic_canonical_formula_fuzz(void)
         }
 
         memcpy(
-            variables_before,
-            variables,
-            variable_count * sizeof(*variables)
-        );
-        memcpy(
             clauses_before,
             clauses,
             variable_count * sizeof(*clauses)
         );
 
         const Cm13Formula formula = {
-            .variables = variables,
             .variable_count = variable_count,
             .clauses = clauses,
             .clause_count = variable_count
@@ -737,11 +687,6 @@ static void test_deterministic_canonical_formula_fuzz(void)
 
         assert_region_encoding(&reduction.region, top_is_r, bottom_is_l);
         assert(memcmp(
-            variables,
-            variables_before,
-            variable_count * sizeof(*variables)
-        ) == 0);
-        assert(memcmp(
             clauses,
             clauses_before,
             variable_count * sizeof(*clauses)
@@ -751,10 +696,6 @@ static void test_deterministic_canonical_formula_fuzz(void)
         free(top_is_r);
         yang_zhang_reduction_destroy(&reduction);
         assert_reduction_destroyed(&reduction);
-
-        variables[0].id = variable_count;
-        assert_build_rejected(&formula);
-        variables[0].id = 0;
 
         const uint32_t saved = clauses[0].variable_index[0];
         clauses[0].variable_index[0] = variable_count;

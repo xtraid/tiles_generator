@@ -165,9 +165,11 @@ SAT/UNSAT of the reduced instance.
 The concrete `Region` builder has black-box tests for the complete active mask,
 boundary encoding, and exact swap trace. End-to-end serial-solver regressions
 now compare complete SAT and UNSAT reductions with an independent Boolean
-oracle; these are regression checks, not the proof of band neutrality. Isolated
-crossover blocks, including their anchor paths and implicit triangular
-forwarder areas, remain a separate focused integration obligation.
+oracle; these are regression checks, not the proof of band neutrality. Focused
+solver tests also cover the atomic forwarder, anchor, and crossover generalized
+tiles for both signal values. A whole crossover block, including its anchor
+paths and implicit triangular forwarder areas, remains a separate focused
+integration obligation.
 
 ## 6. Dimension calculator and completed builder
 

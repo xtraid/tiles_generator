@@ -65,8 +65,9 @@ connected instances, and its tests must verify that property.
    (complete).
 4. Correct deterministic serial solver; every witness passes the verifier
    (complete).
-5. Solver-level regression tests for the proven explicit forwarder bands and
-   integration tests for the anchor and crossover gadgets.
+5. Solver-level regression tests for the explicit forwarder bands and atomic
+   anchor/crossover gadgets (complete); whole-block crossover coverage remains
+   a focused follow-up.
 6. Z3 Boolean and tiling cross-checks on small regression instances.
 7. OpenMP planning only after the serial solver is stable and profiled.
 8. Square-to-hex verification, JSON, and rendering after the square core.

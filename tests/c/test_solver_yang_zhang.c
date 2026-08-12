@@ -93,12 +93,10 @@ static void assert_reduction_matches_boolean_oracle(Cm13Formula *formula)
 
 static void test_minimal_unsat_formula(void)
 {
-    Cm13Variable variables[] = { { .id = 0 } };
     Cm13Clause clauses[] = {
         { .variable_index = { 0, 0, 0 } },
     };
     Cm13Formula formula = {
-        .variables = variables,
         .variable_count = 1,
         .clauses = clauses,
         .clause_count = 1,
@@ -108,16 +106,12 @@ static void test_minimal_unsat_formula(void)
 
 static void test_true_signal_in_first_clause_row(void)
 {
-    Cm13Variable variables[] = {
-        { .id = 0 }, { .id = 1 }, { .id = 2 },
-    };
     Cm13Clause clauses[] = {
         { .variable_index = { 0, 0, 1 } },
         { .variable_index = { 0, 1, 2 } },
         { .variable_index = { 1, 2, 2 } },
     };
     Cm13Formula formula = {
-        .variables = variables,
         .variable_count = 3,
         .clauses = clauses,
         .clause_count = 3,
@@ -163,7 +157,6 @@ static void enumerate_canonical_formulas(
 
 static void test_all_canonical_formulas_through_three_variables(void)
 {
-    Cm13Variable variables[3];
     Cm13Clause clauses[3];
     size_t case_count = 0;
 
@@ -174,12 +167,10 @@ static void test_all_canonical_formulas_through_three_variables(void)
         for (uint32_t variable = 0;
              variable < variable_count;
              ++variable) {
-            variables[variable] = (Cm13Variable){ .id = variable };
             remaining[variable] = 3;
         }
 
         Cm13Formula formula = {
-            .variables = variables,
             .variable_count = variable_count,
             .clauses = clauses,
             .clause_count = variable_count,
@@ -197,13 +188,11 @@ static void test_all_canonical_formulas_through_three_variables(void)
 
 static void test_two_variable_unsat_formula(void)
 {
-    Cm13Variable variables[] = { { .id = 0 }, { .id = 1 } };
     Cm13Clause clauses[] = {
         { .variable_index = { 0, 0, 1 } },
         { .variable_index = { 0, 1, 1 } },
     };
     Cm13Formula formula = {
-        .variables = variables,
         .variable_count = 2,
         .clauses = clauses,
         .clause_count = 2,
@@ -213,19 +202,12 @@ static void test_two_variable_unsat_formula(void)
 
 static void test_three_variable_sat_formulas(void)
 {
-    Cm13Variable variables[] = {
-        { .id = 0 },
-        { .id = 1 },
-        { .id = 2 },
-    };
-
     Cm13Clause paper_clauses[] = {
         { .variable_index = { 0, 0, 2 } },
         { .variable_index = { 1, 1, 2 } },
         { .variable_index = { 0, 1, 2 } },
     };
     Cm13Formula paper_formula = {
-        .variables = variables,
         .variable_count = 3,
         .clauses = paper_clauses,
         .clause_count = 3,
@@ -238,7 +220,6 @@ static void test_three_variable_sat_formulas(void)
         { .variable_index = { 0, 1, 2 } },
     };
     Cm13Formula symmetric_formula = {
-        .variables = variables,
         .variable_count = 3,
         .clauses = symmetric_clauses,
         .clause_count = 3,

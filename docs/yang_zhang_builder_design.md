@@ -11,12 +11,13 @@ mathematical construction and the fixed tileset. The implemented public headers
 and black-box tests are authoritative for API behavior; this document preserves
 the rationale, invariants, and correctness obligations behind them.
 
-Implementation status as of 11 August 2026: the formula representation, public
+Implementation status as of 12 August 2026: the formula representation, public
 reduction API, validation, routing, region construction, boundary coloring,
 ownership behavior, and required builder tests are implemented. The later
 solver-level integration suite now checks complete SAT and UNSAT reductions
-against an independent Boolean oracle. The narrower isolated-gadget obligation
-in Section 11.4 remains pending.
+against an independent Boolean oracle. Focused solver-level tests now cover the
+atomic forwarder, left-anchor, right-anchor, and crossover generalized tiles.
+The larger whole-block obligation described in Section 11.4 remains pending.
 
 Primary source:
 
@@ -67,15 +68,11 @@ Introduce the formula types in `include/wang/formula.h`:
 
 ```c
 typedef struct {
-    uint32_t id;  /* canonical 0-based ID; must equal the array index */
-} Cm13Variable;
-
-typedef struct {
-    uint32_t variable_index[3]; /* indices into Cm13Formula.variables */
+    /* Canonical 0-based indices in 0 .. variable_count - 1. */
+    uint32_t variable_index[3];
 } Cm13Clause;
 
 typedef struct {
-    Cm13Variable *variables;
     uint32_t variable_count;
 
     Cm13Clause *clauses;
@@ -83,14 +80,17 @@ typedef struct {
 } Cm13Formula;
 ```
 
-The future parser owns the two arrays. `yang_zhang_build()` borrows the formula
-and all nested storage for the duration of the call and must neither modify nor
-free them.
+The future parser owns the clause array. `yang_zhang_build()` borrows the
+formula and its clause storage for the duration of the call and must neither
+modify nor free them.
 
-The explicit unique `variables` array represents the virgin signals emitted by
-the left side. The builder must not derive or deduplicate the variable set from
-the clauses. Clause entries refer to array indices, so target-sequence creation
-and domain validation remain linear.
+`variable_count` declares the variable universe independently from the clause
+contents. Variable identities are exactly the canonical indices
+`0 .. variable_count - 1`; no separate variable object is needed while an ID
+would contain no information beyond its index. The builder must not infer,
+deduplicate, or renumber this universe from the clauses. Clause entries refer
+directly to canonical variable indices, so target-sequence creation and domain
+validation remain linear.
 
 Repeated indices inside one clause are valid. For example, the paper clause
 `(x1, x1, x3)` is represented after canonicalization as:
@@ -108,11 +108,10 @@ three-element array encodes clause arity in the type.
 Validation occurs once at the public API boundary. The builder rejects the
 input without modifying the output when any of these conditions holds:
 
-- the formula, output, variables array, or clauses array is null;
+- the formula, output, or clauses array is null;
 - `variable_count == 0`;
 - `variable_count > YANG_ZHANG_MAX_VARIABLES`;
 - `clause_count != variable_count`;
-- `variables[i].id != i` for any variable;
 - any clause index is outside `0 .. variable_count - 1`;
 - any variable index occurs other than exactly three times in the flattened
   clause array;
@@ -207,7 +206,8 @@ redundant token between consecutive variable/clause groups.
 
 ### 5.1 Source order
 
-The source order is built directly from the explicit unique variable array:
+The source order is built directly from the canonical range declared by
+`variable_count`:
 
 ```text
 x0^0 x0^1 x0^2 z0 x1^0 x1^1 x1^2 z1 ... x(n-1)^0 x(n-1)^1 x(n-1)^2
@@ -551,14 +551,13 @@ Cover at least:
 
 - null API arguments;
 - zero variables;
-- null arrays;
-- variable ID not equal to its index;
+- a null clause array;
 - clause-count mismatch;
 - clause index out of range;
 - a variable occurring two or four times;
 - dimension overflow where representable without dangerous allocation;
 - a non-destroyed output object;
-- input arrays unchanged after both success and failure;
+- the clause array unchanged after both success and failure;
 - output fully destroyed after every failure path.
 
 Retain the existing deterministic stress/fuzz philosophy: generate small
@@ -566,23 +565,30 @@ canonical arrays with a fixed PRNG seed, mutate one invariant at a time, and
 verify rejection and absence of output side effects. Run the resulting tests
 under the existing Memcheck, Cachegrind, ASan, and UBSan workflows.
 
-### 11.4 Later integration obligation
+### 11.4 Solver-level gadget coverage
 
 The public solver/verifier path now checks complete Yang-Zhang reductions
-against an independent Boolean oracle. Add small isolated crossover regions as
-the remaining focused regression. That test must establish that boundary markers
-force the requested adjacent swap while the remaining triangular areas contain
-only compatible forwarders/anchors. Builder tests alone inspect encoding; they
-cannot prove the complete forced-tiling property. The separate two-column
-forwarder bands do not depend on this future test for their correctness: their
-neutrality follows directly from the tile-edge exclusion argument in
-`reduction_notes.md`, Section 5.
+against an independent Boolean oracle. Focused black-box solver tests additionally
+establish the local generalized-tile behavior for both signals: forwarders
+preserve the signal, left and right anchors are forced by their boundary colors,
+and all four crossover inputs `(a,b)` force outputs `(b,a)`.
+
+These atomic fixtures do not yet cover an entire width-`w` rectangular
+crossover block. A future whole-block regression should establish that its
+boundary markers force the requested adjacent swap while the remaining
+triangular areas contain only compatible forwarders and anchors. Builder tests
+alone inspect encoding and cannot prove that larger forced-tiling property. The
+separate two-column forwarder bands do not depend on the future whole-block
+test: their neutrality follows directly from the tile-edge exclusion argument
+in `reduction_notes.md`, Section 5.
 
 ## 12. Decisions that must not be silently changed
 
-- Formula variables are explicit and unique; they are not derived from
-  clauses.
-- Clause references are indices into the variable array.
+- `variable_count` explicitly declares the variable universe; it is not
+  derived from clauses.
+- Variable identities are canonical indices; no separate variable array is
+  stored.
+- Clause references are canonical variable indices.
 - Repeated variables inside a clause are allowed.
 - Coordinates are zero-based with `y` increasing downward.
 - `R` is described as rising to the right from the crossover.

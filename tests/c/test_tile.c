@@ -52,6 +52,41 @@ static void test_tileset_identity_and_ranges(void)
     assert(macro_counts[GEN_X11] == 2);
 }
 
+static void test_tileset_golden_edges(void)
+{
+    static const ColorId expected[TILE_COUNT][DIR_COUNT] = {
+        [TILE_V0_TOP]      = { COLOR_B,     COLOR_0,       COLOR_V0_A, COLOR_V },
+        [TILE_V0_MID]      = { COLOR_V0_A,  COLOR_0,       COLOR_V0_B, COLOR_V },
+        [TILE_V0_BOTTOM]   = { COLOR_V0_B,  COLOR_0,       COLOR_B,    COLOR_V },
+        [TILE_V1]          = { COLOR_B,     COLOR_1,       COLOR_B,    COLOR_V },
+        [TILE_C0]          = { COLOR_B,     COLOR_0_PRIME, COLOR_B,    COLOR_0 },
+        [TILE_C1_TOP]      = { COLOR_B,     COLOR_0_PRIME, COLOR_C1,   COLOR_1 },
+        [TILE_C1_BOTTOM]   = { COLOR_C1,    COLOR_1,       COLOR_B,    COLOR_0 },
+        [TILE_F0]          = { COLOR_B,     COLOR_0,       COLOR_B,    COLOR_0 },
+        [TILE_F1]          = { COLOR_B,     COLOR_1,       COLOR_B,    COLOR_1 },
+        [TILE_L0]          = { COLOR_L,     COLOR_0,       COLOR_L,    COLOR_0 },
+        [TILE_L1]          = { COLOR_L,     COLOR_1,       COLOR_L,    COLOR_1 },
+        [TILE_R0_LEFT]     = { COLOR_B,     COLOR_R0,      COLOR_R,    COLOR_0 },
+        [TILE_R0_RIGHT]    = { COLOR_R,     COLOR_0,       COLOR_B,    COLOR_R0 },
+        [TILE_R1_LEFT]     = { COLOR_B,     COLOR_R1,      COLOR_R,    COLOR_1 },
+        [TILE_R1_RIGHT]    = { COLOR_R,     COLOR_1,       COLOR_B,    COLOR_R1 },
+        [TILE_X00_TOP]     = { COLOR_R,     COLOR_0,       COLOR_X00,  COLOR_0 },
+        [TILE_X00_BOTTOM]  = { COLOR_X00,   COLOR_0,       COLOR_L,    COLOR_0 },
+        [TILE_X01_TOP]     = { COLOR_R,     COLOR_0,       COLOR_X01,  COLOR_1 },
+        [TILE_X01_BOTTOM]  = { COLOR_X01,   COLOR_1,       COLOR_L,    COLOR_0 },
+        [TILE_X10_TOP]     = { COLOR_R,     COLOR_1,       COLOR_X10,  COLOR_0 },
+        [TILE_X10_BOTTOM]  = { COLOR_X10,   COLOR_0,       COLOR_L,    COLOR_1 },
+        [TILE_X11_TOP]     = { COLOR_R,     COLOR_1,       COLOR_X11,  COLOR_1 },
+        [TILE_X11_BOTTOM]  = { COLOR_X11,   COLOR_1,       COLOR_L,    COLOR_1 },
+    };
+
+    for (TileId id = 0; id < TILE_COUNT; ++id) {
+        for (Dir dir = N; dir < DIR_COUNT; ++dir) {
+            assert(TILESET[id].edge[dir] == expected[id][dir]);
+        }
+    }
+}
+
 static void test_known_matches(void)
 {
     assert(wang_tiles_match(
@@ -133,6 +168,7 @@ int main(void)
 {
     test_opposite();
     test_tileset_identity_and_ranges();
+    test_tileset_golden_edges();
     test_known_matches();
     test_match_symmetry();
     test_api_rejects_invalid_input();

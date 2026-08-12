@@ -16,18 +16,11 @@ static bool reduction_is_destroyed(const YangZhangReduction *reduction)
 static bool formula_is_in_reduction_domain(const Cm13Formula *formula)
 {
     if (formula == NULL ||
-        formula->variables == NULL ||
         formula->clauses == NULL ||
         formula->variable_count == 0 ||
         formula->variable_count > YANG_ZHANG_MAX_VARIABLES ||
         formula->clause_count != (size_t)formula->variable_count) {
         return false;
-    }
-
-    for (uint32_t i = 0; i < formula->variable_count; ++i) {
-        if (formula->variables[i].id != i) {
-            return false;
-        }
     }
 
     uint8_t *occurrence_counts = calloc(

@@ -54,15 +54,15 @@ tileability.
 
 ## Current status
 
-Implemented and tested as of 11 August 2026:
+Implemented and tested as of 12 August 2026:
 
 - canonical static definition of the 23 atomic Wang tiles;
 - generalized-tile family metadata kept outside solver semantics;
 - oriented local edge matching;
 - Yang–Zhang signal tokens and deterministic adjacent-swap routing;
 - application and validation of adjacent-swap sequences;
-- canonical in-memory Cubic Monotone 1-in-3 SAT representation and
-  builder-side domain validation;
+- minimal canonical in-memory Cubic Monotone 1-in-3 SAT representation using
+  `variable_count` and clauses, with builder-side domain validation;
 - transactional Yang–Zhang formula-to-region construction, including exact
   swap-trace ownership, dimensions, the paper-shaped simply connected active
   mask, and all exposed boundary colors;
@@ -77,13 +77,16 @@ Implemented and tested as of 11 August 2026:
 - C regression tests, deterministic fuzzing against brute-force and Boolean
   oracles, large-region stress cases, and end-to-end Yang-Zhang SAT/UNSAT
   checks;
+- golden coverage of all 23 `(N,E,S,W)` tile tuples and focused solver-level
+  tests for forwarder, anchor, and atomic crossover behavior;
 - C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
   ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
 Not implemented yet:
 
 - Cubic Monotone 1-in-3 SAT text parsing;
-- isolated solver-level anchor/crossover gadget regressions;
+- whole-block crossover regression including its triangular forwarder/anchor
+  areas;
 - native OpenMP solver;
 - Z3 Boolean and tiling models;
 - square-to-hex translation and verification;
@@ -96,8 +99,8 @@ does not indicate that the corresponding feature is implemented.
 
 Development proceeds through small, testable modules:
 
-1. add the Cubic Monotone 1-in-3 SAT text parser;
-2. add isolated solver-level integration tests for anchors and crossovers;
+1. add the Cubic Monotone 1-in-3 SAT text parser and formula ownership API;
+2. add a whole-block crossover regression for the triangular gadget areas;
 3. add the Z3 cross-checks;
 4. profile the serial baseline on larger reduction instances;
 5. introduce OpenMP from measured serial split points;

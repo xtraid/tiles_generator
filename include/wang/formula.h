@@ -8,19 +8,15 @@
  * Canonical in-memory representation of a Cubic Monotone 1-in-3 SAT
  * instance.
  *
- * Storage is owned by the caller (eventually, the parser). Reduction
- * builders borrow the formula and its nested arrays without modifying them.
+ * Clause storage is owned by the caller (eventually, the parser). Reduction
+ * builders borrow the formula and its clauses without modifying them.
  */
 typedef struct {
-    uint32_t id; /* canonical 0-based ID; must equal the array index */
-} Cm13Variable;
-
-typedef struct {
-    uint32_t variable_index[3]; /* indices into Cm13Formula.variables */
+    /* Canonical 0-based indices in 0 .. variable_count - 1. */
+    uint32_t variable_index[3];
 } Cm13Clause;
 
 typedef struct {
-    Cm13Variable *variables;
     uint32_t variable_count;
 
     Cm13Clause *clauses;
