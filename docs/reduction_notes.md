@@ -167,9 +167,11 @@ boundary encoding, and exact swap trace. End-to-end serial-solver regressions
 now compare complete SAT and UNSAT reductions with an independent Boolean
 oracle; these are regression checks, not the proof of band neutrality. Focused
 solver tests also cover the atomic forwarder, anchor, and crossover generalized
-tiles for both signal values. A whole crossover block, including its anchor
-paths and implicit triangular forwarder areas, remains a separate focused
-integration obligation.
+tiles for both signal values. Focused whole-block tests additionally enumerate
+the complete binary input/output relation at every swap position for height
+seven, sweep every position at larger valid heights through 31 rows, exercise
+chains produced by the permutation builder, fuzz deterministic larger chains,
+and stress volumes up to 31 signal rows and 96 consecutive crossover blocks.
 
 ## 6. Dimension calculator and completed builder
 

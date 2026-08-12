@@ -63,6 +63,8 @@ Implemented and tested as of 12 August 2026:
 - application and validation of adjacent-swap sequences;
 - minimal canonical in-memory Cubic Monotone 1-in-3 SAT representation using
   `variable_count` and clauses, with builder-side domain validation;
+- strict `p cm13` parser with caller-owned `FILE *`, precise error locations,
+  transactional output, and explicit formula destruction;
 - transactional Yang–Zhang formula-to-region construction, including exact
   swap-trace ownership, dimensions, the paper-shaped simply connected active
   mask, and all exposed boundary colors;
@@ -78,34 +80,34 @@ Implemented and tested as of 12 August 2026:
   oracles, large-region stress cases, and end-to-end Yang-Zhang SAT/UNSAT
   checks;
 - golden coverage of all 23 `(N,E,S,W)` tile tuples and focused solver-level
-  tests for forwarder, anchor, and atomic crossover behavior;
+  tests for forwarder, anchor, atomic crossover, and whole crossover-block
+  behavior, including deterministic chain fuzzing and volume stress;
+- immutable pure Python formula data and an independent Boolean witness
+  checker that preserves repeated clause positions;
 - C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
   ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
 Not implemented yet:
 
-- Cubic Monotone 1-in-3 SAT text parsing;
-- whole-block crossover regression including its triangular forwarder/anchor
-  areas;
+- the C-to-Python formula binding (currently documented scaffolding only);
 - native OpenMP solver;
 - Z3 Boolean and tiling models;
 - square-to-hex translation and verification;
 - JSON export and renderer integration.
 
-Some empty files intentionally reserve the target module layout. A placeholder
-does not indicate that the corresponding feature is implemented.
+The Boolean and Wang Z3 modules are scaffolds, not implemented solvers.
 
 ## Next milestones
 
 Development proceeds through small, testable modules:
 
-1. add the Cubic Monotone 1-in-3 SAT text parser and formula ownership API;
-2. add a whole-block crossover regression for the triangular gadget areas;
-3. add the Z3 cross-checks;
-4. profile the serial baseline on larger reduction instances;
-5. introduce OpenMP from measured serial split points;
-6. implement and verify the square-to-hex translation;
-7. stabilize JSON and renderer integration last.
+1. implement the C-to-Python formula copy boundary when a robust external C
+   entry point exists;
+2. add the Z3 cross-checks;
+3. profile the serial baseline on larger reduction instances;
+4. introduce OpenMP from measured serial split points;
+5. implement and verify the square-to-hex translation;
+6. stabilize JSON and renderer integration last.
 
 The implementation follows a deliberately small design rule: each datum has one
 owner, derived state is computed when needed, and future metadata is not added to
@@ -117,7 +119,7 @@ Requirements:
 
 - a C17 compiler;
 - OpenMP support for the parallel build target;
-- [`uv`](https://docs.astral.sh/uv/) for future Python/Z3 tests.
+- [`uv`](https://docs.astral.sh/uv/) for Python reference-tool tests.
 
 Run the complete current check:
 
@@ -149,13 +151,22 @@ src/builder/     Yang-Zhang reduction components
 src/solver/      serial solver
 src/parallel/    OpenMP path
 src/verify/      independent tiling verification
-src/io/          serialization
-python/z3/       reference Z3 models
+src/io/          formula parsing and serialization
+python/model/    pure Python data contracts
+python/native/   C ABI adapters and ownership boundaries
+python/oracles/  independent Z3 oracles and witness checks
 python/hex/      square-to-hex translation and verifier
 tests/           C, Python, and instance regressions
 docs/            theory and architecture references
 legacy/          frozen experimental code
 ```
+
+The C parser is canonical for native input. Native adapters copy data into
+Python-owned models and never expose C pointers. Oracles accept models rather
+than paths: the Boolean oracle consumes `Formula`, while the planned Wang
+oracle consumes `Region + TILESET`. The Boolean witness checker is pure Python
+and independent of Z3. Python does not duplicate parsing or the Yang-Zhang
+reduction.
 
 ## Documentation
 

@@ -29,9 +29,110 @@ Prefer the smallest representation that preserves the required invariants.
 | `verify` | No persistent state; reads a candidate tiling | Search logic |
 | `solver` | Domains, trail, assignments, search state | Reduction semantics |
 | `task_plan` | Future OpenMP dependencies | Region or serial solver ownership |
+| `python/model` | Pure immutable Python data contracts | I/O, ctypes, Z3, or native ownership |
+| `python/native` | C ABI adaptation, native lifetimes, complete copy-out | Solver logic or leaked native pointers |
+| `python/oracles` | Independent solver or verifier logic over pure models | Parsing, filesystem I/O, or reduction construction |
 
 The renderer and JSON layer remain downstream from construction, solving, and
 verification. They do not decide correctness.
+
+## Python ownership and oracle boundaries
+
+The current Python layer contains an immutable `Formula` model and an
+independent Boolean witness checker. `native/formula.py`, the Boolean Z3 solver,
+and the Wang Z3 solver are scaffolds. There is currently no Python `Region`
+model, native region adapter, shared-library loader, or implemented Z3 encoding.
+
+Dependencies flow in one direction:
+
+```text
+C formula/parser
+      |
+      v
+   libwang
+      |
+      v
+native/formula.py
+      |
+      v
+model/formula.py
+      |
+      +--------------------+
+      |                    |
+      v                    v
+boolean_solver.py    witness_check.py
+```
+
+Forbidden dependencies are equally explicit:
+
+```text
+boolean_solver.py  -X-> native/formula.py, ctypes, filesystem
+witness_check.py   -X-> Z3, ctypes, C ABI
+model/formula.py   -X-> ctypes, CDLL, filesystem, Z3
+```
+
+The native adapter is an ownership boundary. It must copy the complete C
+formula, including all three ordered positions of every clause, into Python
+storage and release the C allocation in a `finally` block. No ctypes pointer
+may escape. The current C API only exposes `cm13_formula_parse(FILE *, ...)`,
+so the scaffold does not bind a fragile `FILE *`. A small, non-Python-specific
+future API such as `cm13_formula_load_path(...)` may provide a robust external
+entry point, but it is not implemented.
+
+Do not marshal `Formula` back into `Cm13Formula`. When one future consumer needs
+both formula and region, parse once and branch while the native formula is
+alive:
+
+```text
+                          .cm13
+                            |
+                            v
+                       C parser
+                            |
+                       Cm13Formula C
+                       /           \
+                      /             \
+                     v               v
+             copy Formula Py    Yang-Zhang builder
+                     |               |
+                     v               v
+             Boolean Z3           Region C
+                     |               |
+                     v               +------------------+
+                assignment                              |
+                     |                                  |
+                     v                                  v
+             witness checker                      native Wang solver
+                                                        |
+                                      Region copy ------+
+                                          |
+                                          v
+                                    Wang Z3 oracle
+```
+
+The coordinating native code must use `finally` cleanup to destroy the C
+region and then the C formula after the required copies and native operations
+finish. Both returned Python models are fully Python-owned.
+
+The future `native/region.py` will copy `Region C` into a pure Python region;
+only once that second native consumer exists should `native/_lib.py`
+centralize loading of a future shared `libwang.so`. A future
+`native/reduction.py` may coordinate the single native formula lifetime shown
+above, but it must not be created before a real consumer needs it.
+
+There are two distinct planned oracles:
+
+- Boolean Z3: `Formula -> Boolean constraints -> SAT/UNSAT/UNKNOWN` and an
+  assignment only for SAT. It performs no parsing, I/O, ctypes work, region
+  construction, or reduction.
+- Wang Z3: `Region + canonical TILESET -> tiling constraints ->
+  SAT/UNSAT/UNKNOWN` and a tiling only for SAT. It receives the same concrete
+  region as the native solver; it must not rebuild Yang-Zhang independently.
+
+The Boolean witness checker remains pure Python and counts clause positions,
+not unique variables: `(x, x, y)` counts `x` twice. Verifiers never depend on
+the solver they check. Reverse marshalling, a common `_lib.py`, and new model
+layers remain forbidden until concrete consumers justify them.
 
 ## Minimal Region direction
 
@@ -59,15 +160,15 @@ connected instances, and its tests must verify that property.
 ## Development order
 
 1. Minimal `Region` storage, lifetime, access, and boundary tests (complete).
-2. Canonical Cubic Monotone 1-in-3 SAT representation, validation, and
-   formula-to-region Yang-Zhang builder (complete).
+2. Canonical Cubic Monotone 1-in-3 SAT representation, strict text parser,
+   validation, and formula-to-region Yang-Zhang builder (complete).
 3. Independent verifier exercised on hand-built regions and tilings
    (complete).
 4. Correct deterministic serial solver; every witness passes the verifier
    (complete).
-5. Solver-level regression tests for the explicit forwarder bands and atomic
-   anchor/crossover gadgets (complete); whole-block crossover coverage remains
-   a focused follow-up.
+5. Solver-level regression tests for the explicit forwarder bands, atomic
+   anchor/crossover gadgets, whole crossover blocks, composed chains,
+   deterministic fuzz cases, and large volumes (complete).
 6. Z3 Boolean and tiling cross-checks on small regression instances.
 7. OpenMP planning only after the serial solver is stable and profiled.
 8. Square-to-hex verification, JSON, and rendering after the square core.

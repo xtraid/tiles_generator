@@ -8,8 +8,9 @@
  * Canonical in-memory representation of a Cubic Monotone 1-in-3 SAT
  * instance.
  *
- * Clause storage is owned by the caller (eventually, the parser). Reduction
- * builders borrow the formula and its clauses without modifying them.
+ * A successful parser call transfers owned clause storage to the formula;
+ * release it with cm13_formula_destroy(). Reduction builders only borrow the
+ * formula and its clauses and never modify them.
  */
 typedef struct {
     /* Canonical 0-based indices in 0 .. variable_count - 1. */

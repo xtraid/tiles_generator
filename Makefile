@@ -140,7 +140,9 @@ cachegrind-check:
 
 python-check:
 ifneq ($(strip $(PYTHON_TESTS)),)
-	$(UV) run --frozen python -m unittest discover -s tests/python -p 'test_*.py'
+	PYTHONPATH="$(CURDIR)/python" \
+		$(UV) run --frozen python -m unittest discover \
+		-s tests/python -p 'test_*.py'
 else
 	@echo "No Python tests found; build checks passed."
 endif

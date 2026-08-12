@@ -17,7 +17,7 @@ ownership behavior, and required builder tests are implemented. The later
 solver-level integration suite now checks complete SAT and UNSAT reductions
 against an independent Boolean oracle. Focused solver-level tests now cover the
 atomic forwarder, left-anchor, right-anchor, and crossover generalized tiles.
-The larger whole-block obligation described in Section 11.4 remains pending.
+Whole-block solver regressions now cover the obligation in Section 11.4.
 
 Primary source:
 
@@ -80,9 +80,10 @@ typedef struct {
 } Cm13Formula;
 ```
 
-The future parser owns the clause array. `yang_zhang_build()` borrows the
-formula and its clause storage for the duration of the call and must neither
-modify nor free them.
+The parser owns the clause array it allocates until the caller passes the
+formula to `cm13_formula_destroy()`. `yang_zhang_build()` borrows the formula
+and its clause storage for the duration of the call and must neither modify nor
+free them.
 
 `variable_count` declares the variable universe independently from the clause
 contents. Variable identities are exactly the canonical indices
@@ -573,14 +574,17 @@ establish the local generalized-tile behavior for both signals: forwarders
 preserve the signal, left and right anchors are forced by their boundary colors,
 and all four crossover inputs `(a,b)` force outputs `(b,a)`.
 
-These atomic fixtures do not yet cover an entire width-`w` rectangular
-crossover block. A future whole-block regression should establish that its
-boundary markers force the requested adjacent swap while the remaining
-triangular areas contain only compatible forwarders and anchors. Builder tests
-alone inspect encoding and cannot prove that larger forced-tiling property. The
-separate two-column forwarder bands do not depend on the future whole-block
-test: their neutrality follows directly from the tile-edge exclusion argument
-in `reduction_notes.md`, Section 5.
+The whole-block regression cuts out the exact width-`w` rectangle, applies only
+its top `B^(w-1)R`, bottom `LB^(w-1)`, and binary interface conditions, and
+preselects no interior tile or edge. At height seven it exhaustively checks all
+binary input/output pairs at every valid swap row: exactly the requested
+adjacent transposition is SAT and every other output is UNSAT. It also checks
+every position at larger valid heights through 31 rows, two- and three-block
+chains produced by `yang_zhang_permutation_build()`, deterministic fuzz cases,
+and large chains up to 31 rows and 96 crossover blocks. These are regression
+checks rather than a general proof. The separate two-column forwarder bands
+remain justified independently by the tile-edge exclusion argument in
+`reduction_notes.md`, Section 5.
 
 ## 12. Decisions that must not be silently changed
 
