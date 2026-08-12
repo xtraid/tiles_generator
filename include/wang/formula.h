@@ -23,4 +23,6 @@ typedef struct {
     size_t clause_count;
 } Cm13Formula;
 
+void cm13_formula_destroy(Cm13Formula *formula);
+
 #endif /* WANG_FORMULA_H */

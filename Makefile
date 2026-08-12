@@ -21,6 +21,7 @@ BUILD_DIR := build
 LIB_DIR := $(BUILD_DIR)/lib
 
 SERIAL_SOURCES := \
+	src/core/formula.c \
 	src/core/tile.c \
 	src/core/region.c \
 	src/builder/permutation.c \
@@ -28,7 +29,8 @@ SERIAL_SOURCES := \
 	src/solver/failed_leaf_trace.c \
 	src/solver/solver_serial.c \
 	src/verify/verify_tiling.c \
-	src/io/json.c
+	src/io/json.c \
+	src/io/formula_parser.c
 
 OPENMP_SOURCE := src/parallel/solver_openmp.c
 
