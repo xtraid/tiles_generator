@@ -38,10 +38,11 @@ verification. They do not decide correctness.
 
 ## Python ownership and oracle boundaries
 
-The current Python layer contains an immutable `Formula` model and an
-independent Boolean witness checker. `native/formula.py`, the Boolean Z3 solver,
-and the Wang Z3 solver are scaffolds. There is currently no Python `Region`
-model, native region adapter, shared-library loader, or implemented Z3 encoding.
+The current Python layer contains an immutable `Formula` model, an independent
+Boolean witness checker, and an implemented Boolean Z3 solver.
+`native/formula.py` and the Wang Z3 solver remain scaffolds. There is currently
+no Python `Region` model, native region adapter, shared-library loader, or Wang
+Z3 encoding.
 
 Dependencies flow in one direction:
 
@@ -74,10 +75,9 @@ model/formula.py   -X-> ctypes, CDLL, filesystem, Z3
 The native adapter is an ownership boundary. It must copy the complete C
 formula, including all three ordered positions of every clause, into Python
 storage and release the C allocation in a `finally` block. No ctypes pointer
-may escape. The current C API only exposes `cm13_formula_parse(FILE *, ...)`,
-so the scaffold does not bind a fragile `FILE *`. A small, non-Python-specific
-future API such as `cm13_formula_load_path(...)` may provide a robust external
-entry point, but it is not implemented.
+may escape. The C API exposes both `cm13_formula_parse(FILE *, ...)` for native
+callers and `cm13_formula_load_path(...)` as the robust external entry point;
+the Python adapter must use the latter and never bind a C `FILE *`.
 
 Do not marshal `Formula` back into `Cm13Formula`. When one future consumer needs
 both formula and region, parse once and branch while the native formula is
@@ -120,11 +120,11 @@ centralize loading of a future shared `libwang.so`. A future
 `native/reduction.py` may coordinate the single native formula lifetime shown
 above, but it must not be created before a real consumer needs it.
 
-There are two distinct planned oracles:
+There are two distinct oracle contracts:
 
-- Boolean Z3: `Formula -> Boolean constraints -> SAT/UNSAT/UNKNOWN` and an
-  assignment only for SAT. It performs no parsing, I/O, ctypes work, region
-  construction, or reduction.
+- Boolean Z3 (implemented): `Formula -> Boolean constraints ->
+  SAT/UNSAT/UNKNOWN` and an assignment only for SAT. It performs no parsing,
+  I/O, ctypes work, region construction, or reduction.
 - Wang Z3: `Region + canonical TILESET -> tiling constraints ->
   SAT/UNSAT/UNKNOWN` and a tiling only for SAT. It receives the same concrete
   region as the native solver; it must not rebuild Yang-Zhang independently.
@@ -169,7 +169,8 @@ connected instances, and its tests must verify that property.
 5. Solver-level regression tests for the explicit forwarder bands, atomic
    anchor/crossover gadgets, whole crossover blocks, composed chains,
    deterministic fuzz cases, and large volumes (complete).
-6. Z3 Boolean and tiling cross-checks on small regression instances.
+6. Z3 Boolean cross-checks on small regression instances (complete); Wang
+   tiling cross-checks follow the Python region boundary.
 7. OpenMP planning only after the serial solver is stable and profiled.
 8. Square-to-hex verification, JSON, and rendering after the square core.
 

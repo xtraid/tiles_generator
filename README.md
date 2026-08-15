@@ -54,7 +54,7 @@ tileability.
 
 ## Current status
 
-Implemented and tested as of 12 August 2026:
+Implemented and tested as of 15 August 2026:
 
 - canonical static definition of the 23 atomic Wang tiles;
 - generalized-tile family metadata kept outside solver semantics;
@@ -63,8 +63,9 @@ Implemented and tested as of 12 August 2026:
 - application and validation of adjacent-swap sequences;
 - minimal canonical in-memory Cubic Monotone 1-in-3 SAT representation using
   `variable_count` and clauses, with builder-side domain validation;
-- strict `p cm13` parser with caller-owned `FILE *`, precise error locations,
-  transactional output, and explicit formula destruction;
+- strict `p cm13` parser with caller-owned `FILE *` and a path-based external
+  loader, precise error locations, transactional output, and explicit formula
+  destruction;
 - transactional Yang–Zhang formula-to-region construction, including exact
   swap-trace ownership, dimensions, the paper-shaped simply connected active
   mask, and all exposed boundary colors;
@@ -82,8 +83,9 @@ Implemented and tested as of 12 August 2026:
 - golden coverage of all 23 `(N,E,S,W)` tile tuples and focused solver-level
   tests for forwarder, anchor, atomic crossover, and whole crossover-block
   behavior, including deterministic chain fuzzing and volume stress;
-- immutable pure Python formula data and an independent Boolean witness
-  checker that preserves repeated clause positions;
+- immutable pure Python formula data, an independent Boolean witness checker,
+  and a Boolean Z3 oracle that preserve repeated clause positions, with SAT
+  and UNSAT regression cases;
 - C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
   ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
@@ -91,19 +93,19 @@ Not implemented yet:
 
 - the C-to-Python formula binding (currently documented scaffolding only);
 - native OpenMP solver;
-- Z3 Boolean and tiling models;
+- Wang Z3 tiling model;
 - square-to-hex translation and verification;
 - JSON export and renderer integration.
 
-The Boolean and Wang Z3 modules are scaffolds, not implemented solvers.
+The Wang Z3 module is a scaffold; the Boolean Z3 oracle is implemented.
 
 ## Next milestones
 
 Development proceeds through small, testable modules:
 
-1. implement the C-to-Python formula copy boundary when a robust external C
-   entry point exists;
-2. add the Z3 cross-checks;
+1. complete the C-to-Python formula copy boundary through the path-based C
+   loader;
+2. add the Python region boundary and Wang Z3 cross-checks;
 3. profile the serial baseline on larger reduction instances;
 4. introduce OpenMP from measured serial split points;
 5. implement and verify the square-to-hex translation;

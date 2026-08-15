@@ -1,12 +1,14 @@
-"""Scaffold for the Boolean Z3 oracle.
+"""Boolean Z3 oracle for Cubic Monotone 1-in-3 SAT formulas.
 
-The future solver consumes an already constructed :class:`Formula`.  Parsing,
+The solver consumes an already constructed :class:`Formula`. Parsing,
 filesystem access, ctypes, the Wang region, and Yang-Zhang reduction logic do
 not belong here.
 """
 
 from dataclasses import dataclass
 from enum import Enum
+
+from z3 import Bool, If, Solver, Sum, is_true, sat, unsat
 
 from model.formula import Formula
 
@@ -29,7 +31,25 @@ class BooleanSolveResult:
 
 
 def solve_boolean(formula: Formula) -> BooleanSolveResult:
-    """Solve ``formula`` once the Z3 encoding milestone is implemented."""
+    """Solve ``formula`` while counting all three positions of each clause."""
+    variables = [Bool(f"x_{index}") for index in range(formula.variable_count)]
 
-    del formula
-    raise NotImplementedError("the Boolean Z3 oracle is scaffolded, not implemented")
+    solver = Solver()
+
+    for clause in formula.clauses:
+        solver.add(Sum([If(variables[index], 1, 0) for index in clause]) == 1)
+
+    status = solver.check()
+
+    if status == sat:
+        model = solver.model()
+        assignment = tuple(
+            is_true(model.eval(variable, model_completion=True))
+            for variable in variables
+        )
+        return BooleanSolveResult(BooleanSolveStatus.SAT, assignment)
+
+    if status == unsat:
+        return BooleanSolveResult(BooleanSolveStatus.UNSAT)
+
+    return BooleanSolveResult(BooleanSolveStatus.UNKNOWN)

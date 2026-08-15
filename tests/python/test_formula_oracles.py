@@ -49,7 +49,7 @@ class BooleanWitnessTests(unittest.TestCase):
         self.assertFalse(is_valid_assignment(formula, (1,)))
 
 
-class BooleanSolverScaffoldTests(unittest.TestCase):
+class BooleanSolverTests(unittest.TestCase):
     def test_result_enforces_assignment_presence(self) -> None:
         assignment = (True, False)
         self.assertEqual(
@@ -64,11 +64,25 @@ class BooleanSolverScaffoldTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             BooleanSolveResult(BooleanSolveStatus.UNSAT, assignment)
 
-    def test_solver_is_explicitly_not_implemented(self) -> None:
+    def test_solves_sat_and_returns_valid_assignment(self) -> None:
+        formula = Formula(
+            variable_count=3,
+            clauses=((0, 0, 1), (0, 1, 2), (1, 2, 2)),
+        )
+
+        result = solve_boolean(formula)
+
+        self.assertEqual(result.status, BooleanSolveStatus.SAT)
+        self.assertEqual(result.assignment, (False, True, False))
+        self.assertTrue(is_valid_assignment(formula, result.assignment))
+
+    def test_solves_unsat_without_assignment(self) -> None:
         formula = Formula(variable_count=1, clauses=((0, 0, 0),))
 
-        with self.assertRaises(NotImplementedError):
-            solve_boolean(formula)
+        result = solve_boolean(formula)
+
+        self.assertEqual(result.status, BooleanSolveStatus.UNSAT)
+        self.assertIsNone(result.assignment)
 
 
 if __name__ == "__main__":

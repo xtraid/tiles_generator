@@ -307,3 +307,29 @@ Cm13ParseStatus cm13_formula_parse(FILE *input, Cm13Formula *out_formula,
     out_formula->clause_count = clause_count;
     return CM13_PARSE_OK;
 }
+
+Cm13ParseStatus cm13_formula_load_path(const char *path, Cm13Formula *out_formula,
+                                        Cm13ParseLocation *out_error_location)
+{
+    FILE *input;
+    Cm13ParseStatus status;
+
+    cm13_set_error(out_error_location, 0, 0);
+    if (path == NULL || out_formula == NULL || out_formula->variable_count != 0 ||
+        out_formula->clauses != NULL || out_formula->clause_count != 0) {
+        return CM13_PARSE_INVALID_ARGUMENT;
+    }
+
+    input = fopen(path, "rb");
+    if (input == NULL) {
+        return CM13_PARSE_IO_ERROR;
+    }
+
+    status = cm13_formula_parse(input, out_formula, out_error_location);
+    if (fclose(input) != 0 && status == CM13_PARSE_OK) {
+        cm13_formula_destroy(out_formula);
+        cm13_set_error(out_error_location, 0, 0);
+        return CM13_PARSE_IO_ERROR;
+    }
+    return status;
+}

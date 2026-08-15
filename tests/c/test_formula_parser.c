@@ -162,6 +162,74 @@ static void test_domain_errors_and_arguments(void)
     }
 }
 
+static void write_path_text(const char *path, const char *text)
+{
+    FILE *output = fopen(path, "wb");
+
+    assert(output != NULL);
+    assert(fwrite(text, 1, strlen(text), output) == strlen(text));
+    assert(fclose(output) == 0);
+}
+
+static void test_load_path(void)
+{
+    static const char path[] = "build/tests/c/cm13_formula_load_path_test.cm13";
+    static const char missing_path[] =
+        "build/tests/c/cm13_formula_load_path_missing.cm13";
+    static const char valid_text[] =
+        "p cm13 3 3\n"
+        "1 1 3 0\n"
+        "2 2 3 0\n"
+        "1 2 3 0\n";
+    Cm13Formula formula = {0};
+    Cm13ParseLocation location = { 99, 99 };
+    Cm13Formula occupied = {
+        .variable_count = 1,
+        .clauses = (Cm13Clause *)(void *)valid_text,
+        .clause_count = 1
+    };
+
+    (void)remove(path);
+    (void)remove(missing_path);
+    write_path_text(path, valid_text);
+
+    assert(cm13_formula_load_path(path, &formula, &location) == CM13_PARSE_OK);
+    assert(location.line == 0 && location.column == 0);
+    assert(formula.variable_count == 3 && formula.clause_count == 3);
+    assert(formula.clauses[0].variable_index[0] == 0);
+    assert(formula.clauses[1].variable_index[1] == 1);
+    assert(formula.clauses[2].variable_index[2] == 2);
+    cm13_formula_destroy(&formula);
+    assert_destroyed(&formula);
+
+    write_path_text(path, "p WRONG 1 1\n");
+    location = (Cm13ParseLocation){ 99, 99 };
+    assert(cm13_formula_load_path(path, &formula, &location) ==
+           CM13_PARSE_SYNTAX_ERROR);
+    assert_destroyed(&formula);
+    assert(location.line == 1 && location.column == 3);
+
+    location = (Cm13ParseLocation){ 99, 99 };
+    assert(cm13_formula_load_path(missing_path, &formula, &location) ==
+           CM13_PARSE_IO_ERROR);
+    assert_destroyed(&formula);
+    assert(location.line == 0 && location.column == 0);
+
+    location = (Cm13ParseLocation){ 99, 99 };
+    assert(cm13_formula_load_path(NULL, &formula, &location) ==
+           CM13_PARSE_INVALID_ARGUMENT);
+    assert(location.line == 0 && location.column == 0);
+    assert(cm13_formula_load_path(path, NULL, NULL) ==
+           CM13_PARSE_INVALID_ARGUMENT);
+    assert(cm13_formula_load_path(path, &occupied, NULL) ==
+           CM13_PARSE_INVALID_ARGUMENT);
+    assert(occupied.variable_count == 1);
+    assert(occupied.clauses == (Cm13Clause *)(void *)valid_text);
+    assert(occupied.clause_count == 1);
+
+    assert(remove(path) == 0);
+}
+
 int main(void)
 {
     test_success_and_lifetime();
@@ -169,5 +237,6 @@ int main(void)
     test_syntax_errors();
     test_exact_error_locations();
     test_domain_errors_and_arguments();
+    test_load_path();
     return 0;
 }
