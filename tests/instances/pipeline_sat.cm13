@@ -1,0 +1,5 @@
+c Shared SAT instance for current end-to-end pipeline tests
+p cm13 3 3
+1 1 2 0
+1 2 3 0
+2 3 3 0

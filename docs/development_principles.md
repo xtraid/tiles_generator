@@ -39,10 +39,10 @@ verification. They do not decide correctness.
 ## Python ownership and oracle boundaries
 
 The current Python layer contains an immutable `Formula` model, an independent
-Boolean witness checker, and an implemented Boolean Z3 solver.
-`native/formula.py` and the Wang Z3 solver remain scaffolds. There is currently
-no Python `Region` model, native region adapter, shared-library loader, or Wang
-Z3 encoding.
+Boolean witness checker, an implemented Boolean Z3 solver, and a tested native
+formula adapter over `libwang.so`. The adapter owns the shared-library loading
+locally until a second native adapter justifies centralization. There is
+currently no Python `Region` model, native region adapter, or Wang Z3 encoding.
 
 Dependencies flow in one direction:
 
@@ -116,7 +116,7 @@ finish. Both returned Python models are fully Python-owned.
 
 The future `native/region.py` will copy `Region C` into a pure Python region;
 only once that second native consumer exists should `native/_lib.py`
-centralize loading of a future shared `libwang.so`. A future
+centralize loading of the shared `libwang.so`. A future
 `native/reduction.py` may coordinate the single native formula lifetime shown
 above, but it must not be created before a real consumer needs it.
 

@@ -86,12 +86,17 @@ Implemented and tested as of 15 August 2026:
 - immutable pure Python formula data, an independent Boolean witness checker,
   and a Boolean Z3 oracle that preserve repeated clause positions, with SAT
   and UNSAT regression cases;
+- a shared `libwang.so` build and a tested C-to-Python formula adapter that
+  copies parser results into immutable Python storage, reports native status
+  and source locations, and closes every native lifetime before returning;
+- shared SAT/UNSAT `.cm13` fixtures exercised through both implemented
+  end-to-end branches: native parser to Yang–Zhang region, serial solver, and
+  verifier; and native parser to Python copy, Boolean Z3, and witness checker;
 - C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
   ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
 Not implemented yet:
 
-- the C-to-Python formula binding (currently documented scaffolding only);
 - native OpenMP solver;
 - Wang Z3 tiling model;
 - square-to-hex translation and verification;
@@ -103,13 +108,11 @@ The Wang Z3 module is a scaffold; the Boolean Z3 oracle is implemented.
 
 Development proceeds through small, testable modules:
 
-1. complete the C-to-Python formula copy boundary through the path-based C
-   loader;
-2. add the Python region boundary and Wang Z3 cross-checks;
-3. profile the serial baseline on larger reduction instances;
-4. introduce OpenMP from measured serial split points;
-5. implement and verify the square-to-hex translation;
-6. stabilize JSON and renderer integration last.
+1. add the Python region boundary and Wang Z3 cross-checks;
+2. profile the serial baseline on larger reduction instances;
+3. introduce OpenMP from measured serial split points;
+4. implement and verify the square-to-hex translation;
+5. stabilize JSON and renderer integration last.
 
 The implementation follows a deliberately small design rule: each datum has one
 owner, derived state is computed when needed, and future metadata is not added to
@@ -134,6 +137,7 @@ Useful individual targets:
 
 ```sh
 make serial
+make shared
 make openmp
 make c-check
 make python-check

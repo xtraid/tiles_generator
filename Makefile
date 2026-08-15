@@ -19,6 +19,8 @@ UBSAN_OPTIONS ?= print_stacktrace=1:halt_on_error=1
 
 BUILD_DIR := build
 LIB_DIR := $(BUILD_DIR)/lib
+PIC_DIR := $(BUILD_DIR)/pic
+PIC_CFLAGS ?= -fPIC
 
 SERIAL_SOURCES := \
 	src/core/formula.c \
@@ -35,9 +37,11 @@ SERIAL_SOURCES := \
 OPENMP_SOURCE := src/parallel/solver_openmp.c
 
 SERIAL_OBJECTS := $(SERIAL_SOURCES:%.c=$(BUILD_DIR)/%.o)
+PIC_OBJECTS := $(SERIAL_SOURCES:%.c=$(PIC_DIR)/%.o)
 OPENMP_OBJECT := $(BUILD_DIR)/$(OPENMP_SOURCE:.c=.o)
 
 SERIAL_DEPS := $(SERIAL_OBJECTS:.o=.d)
+PIC_DEPS := $(PIC_OBJECTS:.o=.d)
 OPENMP_DEP := $(OPENMP_OBJECT:.o=.d)
 
 C_TEST_SOURCES := $(wildcard tests/c/test_*.c)
@@ -46,23 +50,29 @@ C_TEST_DEPS := $(addsuffix .d,$(C_TEST_BINS))
 PYTHON_TESTS := $(shell find tests/python -type f -name 'test_*.py' -print)
 
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
+SHARED_LIBRARY := $(LIB_DIR)/libwang.so
 OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
-.PHONY: all setup serial openmp check c-check python-check \
+.PHONY: all setup serial shared openmp check c-check python-check \
 	strict-check sanitizer-check analyzer-check valgrind-check \
 	cachegrind-check clean
 
-all: serial
+all: serial shared
 
 setup:
 	$(UV) sync --frozen
 
 serial: $(SERIAL_LIBRARY)
 
+shared: $(SHARED_LIBRARY)
+
 openmp: $(OPENMP_LIBRARY)
 
 $(SERIAL_LIBRARY): $(SERIAL_OBJECTS) | $(LIB_DIR)
 	$(AR) rcs $@ $^
+
+$(SHARED_LIBRARY): $(PIC_OBJECTS) | $(LIB_DIR)
+	$(CC) $(LDFLAGS) -shared -o $@ $^ $(LDLIBS)
 
 $(OPENMP_LIBRARY): $(SERIAL_OBJECTS) $(OPENMP_OBJECT) | $(LIB_DIR)
 	$(AR) rcs $@ $^
@@ -74,6 +84,10 @@ $(OPENMP_OBJECT): $(OPENMP_SOURCE)
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(PIC_DIR)/%.o: %.c
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(PIC_CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(LIB_DIR):
 	mkdir -p $@
@@ -97,7 +111,7 @@ c-check: serial $(C_TEST_BINS)
 
 strict-check:
 	$(MAKE) clean
-	$(MAKE) c-check openmp CFLAGS="$(STRICT_CFLAGS)"
+	$(MAKE) c-check shared openmp CFLAGS="$(STRICT_CFLAGS)"
 
 sanitizer-check:
 	$(MAKE) clean
@@ -106,7 +120,7 @@ sanitizer-check:
 
 analyzer-check:
 	$(MAKE) clean
-	$(MAKE) serial openmp CFLAGS="$(ANALYZER_CFLAGS)"
+	$(MAKE) serial shared openmp CFLAGS="$(ANALYZER_CFLAGS)"
 
 valgrind-check:
 	$(MAKE) clean
@@ -138,7 +152,7 @@ cachegrind-check:
 			$$test; \
 	done
 
-python-check:
+python-check: shared
 ifneq ($(strip $(PYTHON_TESTS)),)
 	PYTHONPATH="$(CURDIR)/python" \
 		$(UV) run --frozen python -m unittest discover \
@@ -150,4 +164,4 @@ endif
 clean:
 	$(RM) -r $(BUILD_DIR)
 
--include $(SERIAL_DEPS) $(OPENMP_DEP) $(C_TEST_DEPS)
+-include $(SERIAL_DEPS) $(PIC_DEPS) $(OPENMP_DEP) $(C_TEST_DEPS)
