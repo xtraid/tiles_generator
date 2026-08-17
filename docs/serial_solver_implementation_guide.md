@@ -187,8 +187,14 @@ typedef struct {
     uint64_t domain_reductions;
     uint64_t propagated_arcs;
     uint64_t mrv_cells_scanned;
+    uint64_t initial_trail_writes;
+    uint64_t search_trail_writes;
     size_t trail_peak;
+    size_t trail_capacity_peak;
+    size_t trail_bytes_peak;
     size_t queue_peak;
+    size_t dfs_stack_capacity_peak;
+    size_t dfs_stack_bytes_peak;
     size_t max_depth;
 } WangSolverMetrics;
 
@@ -525,9 +531,19 @@ Definizioni da mantenere stabili nei test e nella documentazione:
 - `domain_reductions`: scritture che restringono davvero un dominio;
 - `propagated_arcs`: archi cella-vicino elaborati;
 - `mrv_cells_scanned`: celle attive ispezionate dalle scansioni MRV;
+- `initial_trail_writes`: entry realmente aggiunte al trail durante la
+  propagazione iniziale;
+- `search_trail_writes`: entry realmente aggiunte al trail durante la DFS;
 - `trail_peak`: massimo numero simultaneo di entry nel trail;
+- `trail_capacity_peak`: massima capacita allocata del trail in entry;
+- `trail_bytes_peak`: byte corrispondenti alla massima capacita allocata del
+  trail;
 - `queue_peak`: massimo numero di indici non ancora estratti presenti
   simultaneamente nella coda di una propagazione;
+- `dfs_stack_capacity_peak`: massima capacita allocata dello stack DFS in
+  frame;
+- `dfs_stack_bytes_peak`: byte corrispondenti alla massima capacita allocata
+  dello stack DFS;
 - `max_depth`: massima profondita DFS raggiunta.
 
 Il tempo non appartiene a `SolverMetrics`: benchmark e chiamante misurano il

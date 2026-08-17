@@ -27,8 +27,14 @@ typedef struct {
     uint64_t domain_reductions;
     uint64_t propagated_arcs;
     uint64_t mrv_cells_scanned;
+    uint64_t initial_trail_writes;
+    uint64_t search_trail_writes;
     size_t trail_peak;
+    size_t trail_capacity_peak;
+    size_t trail_bytes_peak;
     size_t queue_peak;
+    size_t dfs_stack_capacity_peak;
+    size_t dfs_stack_bytes_peak;
     size_t max_depth;
 } WangSolverMetrics;
 
@@ -75,6 +81,19 @@ typedef struct {
  * out_result remains destroyed.
  */
 WangSolveStatus wang_solve_serial(
+    const Region *region,
+    const WangSolverOptions *options,
+    WangSolveResult *out_result
+);
+
+/*
+ * Solve through the performance path.
+ *
+ * This entry point has the same input, ownership, diagnostics, and result
+ * contract as wang_solve_serial(). Optimized mechanisms remain private and
+ * must preserve the finite Wang constraints and independent SAT verification.
+ */
+WangSolveStatus wang_solve_optimized(
     const Region *region,
     const WangSolverOptions *options,
     WangSolveResult *out_result

@@ -75,6 +75,9 @@ Implemented and tested as of 17 August 2026:
 - deterministic native serial solver with private compatibility masks,
   bitmask domains, propagation, MRV search, an undo trail, and mandatory
   independent validation of every SAT witness;
+- differentially checked optimized entry point sharing the same Wang core,
+  with a geometrically growing DFS stack and no undo-trail recording during
+  the non-rollbackable initial propagation;
 - optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
   and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
@@ -109,12 +112,15 @@ The Wang Z3 module is a scaffold; the Boolean Z3 oracle is implemented.
 Development proceeds through small, testable modules:
 
 1. add the Python region boundary and Wang Z3 cross-checks;
-2. establish the performance path with differential coverage and dynamic DFS
-   storage as its first isolated change;
-3. evaluate MRV indexing, propagation scheduling, and OpenMP independently
-   against the recorded reference baseline;
-4. implement and verify the square-to-hex translation;
-5. stabilize JSON and renderer integration last.
+2. continue isolated performance-path changes after the completed dynamic DFS
+   storage and initial-trail removal;
+3. evaluate SAT ownership transfer, byte-wise support tables, queue
+   deduplication, and MRV indexing independently against the recorded
+   reference baseline;
+4. evaluate propagation scheduling and OpenMP only after the serial mechanisms
+   meet their gates;
+5. implement and verify the square-to-hex translation;
+6. stabilize JSON and renderer integration last.
 
 The implementation follows a deliberately small design rule: each datum has one
 owner, derived state is computed when needed, and future metadata is not added to
@@ -151,10 +157,11 @@ make cachegrind-check
 make benchmark
 ```
 
-`make benchmark` builds the portable `-O2` reference harness and runs the
-versioned generic and Yang-Zhang corpus in separate timing, single-solve RSS,
-and metrics passes. Its results are host-specific evidence, not CI pass/fail
-thresholds.
+`make benchmark` builds the portable `-O2` harness and runs the reference path
+over the versioned generic and Yang-Zhang corpus in separate timing,
+single-solve RSS, and metrics passes. Individual cases accept
+`--solver reference|optimized`; reference is the default. Results are
+host-specific evidence, not CI pass/fail thresholds.
 
 ## Repository layout
 
@@ -206,6 +213,12 @@ reduction.
 - [`docs/solver_reference_profile_2026-08-17.md`](docs/solver_reference_profile_2026-08-17.md)
   records the first reproducible `-O2` reference baseline, corpus, metrics,
   Callgrind attribution, limitations, and evidence-gated optimization order.
+- [`docs/solver_dynamic_stack_2026-08-17.md`](docs/solver_dynamic_stack_2026-08-17.md)
+  records the first isolated optimized mechanism, its direct allocation
+  reduction, deep-growth counterexample, and timing gate.
+- [`docs/solver_initial_trail_2026-08-17.md`](docs/solver_initial_trail_2026-08-17.md)
+  records removal of the non-rollbackable initial trail from the optimized
+  path, including direct writes/allocation, RSS, timing, and rollback gates.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

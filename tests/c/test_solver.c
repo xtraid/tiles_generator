@@ -23,8 +23,14 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->domain_reductions == 0 &&
         metrics->propagated_arcs == 0 &&
         metrics->mrv_cells_scanned == 0 &&
+        metrics->initial_trail_writes == 0 &&
+        metrics->search_trail_writes == 0 &&
         metrics->trail_peak == 0 &&
+        metrics->trail_capacity_peak == 0 &&
+        metrics->trail_bytes_peak == 0 &&
         metrics->queue_peak == 0 &&
+        metrics->dfs_stack_capacity_peak == 0 &&
+        metrics->dfs_stack_bytes_peak == 0 &&
         metrics->max_depth == 0;
 }
 

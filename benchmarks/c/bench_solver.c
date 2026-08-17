@@ -30,6 +30,11 @@ typedef enum {
     BENCH_END_TO_END
 } BenchmarkScope;
 
+typedef enum {
+    BENCH_REFERENCE_SOLVER,
+    BENCH_OPTIMIZED_SOLVER
+} BenchmarkSolver;
+
 typedef struct {
     const char *name;
     BenchmarkKind kind;
@@ -343,8 +348,14 @@ static bool metrics_equal(
         left->domain_reductions == right->domain_reductions &&
         left->propagated_arcs == right->propagated_arcs &&
         left->mrv_cells_scanned == right->mrv_cells_scanned &&
+        left->initial_trail_writes == right->initial_trail_writes &&
+        left->search_trail_writes == right->search_trail_writes &&
         left->trail_peak == right->trail_peak &&
+        left->trail_capacity_peak == right->trail_capacity_peak &&
+        left->trail_bytes_peak == right->trail_bytes_peak &&
         left->queue_peak == right->queue_peak &&
+        left->dfs_stack_capacity_peak == right->dfs_stack_capacity_peak &&
+        left->dfs_stack_bytes_peak == right->dfs_stack_bytes_peak &&
         left->max_depth == right->max_depth;
 }
 
@@ -424,15 +435,14 @@ static bool solve_once(
     const Region *region,
     const WangSolverOptions *options,
     bool capture_unsat,
+    BenchmarkSolver solver,
     WangSolverMetrics *out_metrics
 )
 {
     WangSolveResult result = {0};
-    const WangSolveStatus status = wang_solve_serial(
-        region,
-        options,
-        &result
-    );
+    const WangSolveStatus status = solver == BENCH_REFERENCE_SOLVER
+        ? wang_solve_serial(region, options, &result)
+        : wang_solve_optimized(region, options, &result);
     const bool valid = status == spec->expected_status &&
         result_matches_contract(
             region,
@@ -451,7 +461,8 @@ static bool run_benchmark(
     const BenchmarkSpec *spec,
     size_t iterations,
     bool collect_metrics,
-    bool capture_unsat
+    bool capture_unsat,
+    BenchmarkSolver solver
 )
 {
     BenchmarkFixture fixture = {0};
@@ -507,6 +518,7 @@ static bool run_benchmark(
             region,
             &options,
             capture_unsat,
+            solver,
             &metrics
         );
         if (spec->scope == BENCH_END_TO_END) {
@@ -539,16 +551,21 @@ static bool run_benchmark(
     }
 
     printf(
-        "benchmark_version=1 case=%s scope=%s expected=%s "
+        "benchmark_version=3 case=%s solver=%s scope=%s expected=%s "
         "iterations=%zu metrics=%u capture_unsat=%u "
         "elapsed_ns=%" PRIu64 " ns_per_iteration=%" PRIu64 " "
         "max_rss_kib=%ld cells=%zu active=%zu "
         "dfs_nodes=%" PRIu64 " decisions=%" PRIu64 " "
         "backtracks=%" PRIu64 " failed_leaves=%" PRIu64 " "
         "domain_reductions=%" PRIu64 " propagated_arcs=%" PRIu64 " "
-        "mrv_cells_scanned=%" PRIu64 " trail_peak=%zu queue_peak=%zu "
+        "mrv_cells_scanned=%" PRIu64 " "
+        "initial_trail_writes=%" PRIu64 " "
+        "search_trail_writes=%" PRIu64 " trail_peak=%zu "
+        "trail_capacity_peak=%zu trail_bytes_peak=%zu queue_peak=%zu "
+        "dfs_stack_capacity_peak=%zu dfs_stack_bytes_peak=%zu "
         "max_depth=%zu\n",
         spec->name,
+        solver == BENCH_REFERENCE_SOLVER ? "reference" : "optimized",
         spec->scope == BENCH_SOLVER_ONLY ? "solver-only" : "end-to-end",
         spec->expected_status == WANG_SOLVE_SAT ? "SAT" : "UNSAT",
         iterations,
@@ -566,8 +583,14 @@ static bool run_benchmark(
         reference_metrics.domain_reductions,
         reference_metrics.propagated_arcs,
         reference_metrics.mrv_cells_scanned,
+        reference_metrics.initial_trail_writes,
+        reference_metrics.search_trail_writes,
         reference_metrics.trail_peak,
+        reference_metrics.trail_capacity_peak,
+        reference_metrics.trail_bytes_peak,
         reference_metrics.queue_peak,
+        reference_metrics.dfs_stack_capacity_peak,
+        reference_metrics.dfs_stack_bytes_peak,
         reference_metrics.max_depth
     );
 
@@ -592,8 +615,8 @@ static void print_usage(const char *program)
 {
     fprintf(
         stderr,
-        "Usage: %s --case NAME [--iterations N] [--metrics] "
-        "[--capture-unsat]\n"
+        "Usage: %s --case NAME [--solver reference|optimized] "
+        "[--iterations N] [--metrics] [--capture-unsat]\n"
         "       %s --list\n"
         "       %s --environment\n",
         program,
@@ -610,6 +633,8 @@ int main(int argc, char **argv)
     bool capture_unsat = false;
     bool list = false;
     bool environment = false;
+    BenchmarkSolver solver = BENCH_REFERENCE_SOLVER;
+    bool solver_selected = false;
 
     for (int argument = 1; argument < argc; ++argument) {
         if (strcmp(argv[argument], "--case") == 0 && argument + 1 < argc) {
@@ -624,6 +649,22 @@ int main(int argc, char **argv)
             collect_metrics = true;
         } else if (strcmp(argv[argument], "--capture-unsat") == 0) {
             capture_unsat = true;
+        } else if (strcmp(argv[argument], "--solver") == 0 &&
+                   argument + 1 < argc) {
+            const char *name = argv[++argument];
+            if (solver_selected) {
+                print_usage(argv[0]);
+                return EXIT_FAILURE;
+            }
+            solver_selected = true;
+            if (strcmp(name, "reference") == 0) {
+                solver = BENCH_REFERENCE_SOLVER;
+            } else if (strcmp(name, "optimized") == 0) {
+                solver = BENCH_OPTIMIZED_SOLVER;
+            } else {
+                print_usage(argv[0]);
+                return EXIT_FAILURE;
+            }
         } else if (strcmp(argv[argument], "--list") == 0) {
             list = true;
         } else if (strcmp(argv[argument], "--environment") == 0) {
@@ -636,7 +677,7 @@ int main(int argc, char **argv)
 
     if (list) {
         if (case_name != NULL || iterations != 0 || collect_metrics ||
-            capture_unsat || environment) {
+            capture_unsat || environment || solver_selected) {
             print_usage(argv[0]);
             return EXIT_FAILURE;
         }
@@ -650,12 +691,12 @@ int main(int argc, char **argv)
 
     if (environment) {
         if (case_name != NULL || iterations != 0 || collect_metrics ||
-            capture_unsat) {
+            capture_unsat || solver_selected) {
             print_usage(argv[0]);
             return EXIT_FAILURE;
         }
         printf(
-            "benchmark_version=1 compiler=%s c_standard=%ld\n",
+            "benchmark_version=3 compiler=%s c_standard=%ld\n",
             __VERSION__,
             (long)__STDC_VERSION__
         );
@@ -674,7 +715,8 @@ int main(int argc, char **argv)
             spec,
             iterations,
             collect_metrics,
-            capture_unsat
+            capture_unsat,
+            solver
         )) {
         fprintf(stderr, "benchmark failed: %s\n", spec->name);
         return EXIT_FAILURE;

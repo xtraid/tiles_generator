@@ -110,6 +110,9 @@ benchmark: $(BENCHMARK_BIN)
 benchmark-smoke: $(BENCHMARK_BIN)
 	$(BENCHMARK_BIN) \
 		--case generic_backtracking_sat --iterations 1 --metrics
+	$(BENCHMARK_BIN) \
+		--case generic_backtracking_sat --solver optimized \
+		--iterations 1 --metrics
 
 check: c-check openmp python-check benchmark-smoke
 

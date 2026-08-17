@@ -40,9 +40,9 @@ Conceptually:
              simple storage          optimized private storage
 ```
 
-Names for future entry points are intentionally not frozen here. Illustrative
-names are `wang_solve_serial()` for the reference path and
-`wang_solve_optimized()` for the performance path.
+The public entry points are `wang_solve_serial()` for the reference path and
+`wang_solve_optimized()` for the performance path. They have the same input,
+ownership, diagnostics, and result contract.
 
 ## One solver, not two algorithms
 
@@ -235,10 +235,12 @@ be confused with releasing final solver state.
    verification costs. (Complete for the initial baseline; direct duplicate
    queue and repeated trail-write counters remain a later measurement.)
 5. Extract only the measured execution boundary needed by the performance
-   path.
+   path. (Complete: the validated Wang core is shared.)
 6. Add the performance path with no semantic shortcut and establish initial
-   differential coverage.
-7. Apply one measured optimization at a time.
+   differential coverage. (Complete.)
+7. Apply one measured optimization at a time. (In progress: dynamic DFS
+   storage and initial-propagation trail removal are complete as isolated
+   mechanisms.)
 8. Introduce TaskPlan and OpenMP inside the performance path only if their
    evidence gates are met.
 9. Revisit streaming, cancellation, resource budgets, and more speculative
@@ -246,18 +248,30 @@ be confused with releasing final solver state.
 
 ## Current implementation status
 
-After the initial reference profile:
+After the first two isolated performance mechanisms:
 
-- `wang_solve_serial()` is the only implemented native solver entry point;
+- `wang_solve_serial()` and `wang_solve_optimized()` are implemented public
+  entry points with the same contract;
+- both invoke the same validated Wang core; only the optimized path uses a
+  small geometrically growing DFS stack and skips undo-trail recording during
+  initial propagation, where rollback cannot occur. The trail is enabled
+  before every DFS search restriction; the reference path retains its
+  full-capacity stack and initial trail;
+- differential tests cover generic Wang SAT/UNSAT cases checked by brute
+  force, backtracking, Yang-Zhang reductions checked by a Boolean oracle,
+  independently verified SAT witnesses, UNSAT diagnostics, invalid API inputs,
+  shallow-stack reservation, and growth beyond 8,000 frames;
 - `src/parallel/solver_openmp.c` is a placeholder;
 - `include/wang/task_plan.h` is empty;
-- the serial solver captures the UNSAT diagnostic snapshot lazily and only
-  when explicitly requested;
+- the shared core captures the UNSAT diagnostic snapshot lazily and only when
+  explicitly requested;
 - `benchmarks/` contains the fixed generic and Yang-Zhang corpus and a
-  reproducible portable `-O2` runner;
+  reproducible portable `-O2` runner selectable between reference and
+  optimized entry points;
 - `solver_reference_profile_2026-08-17.md` records timing, peak RSS, solver
   metrics, and Callgrind/Cachegrind attribution;
-- no performance-path implementation or shared execution boundary exists yet.
+- ownership transfer, byte-wise support tables, queue deduplication, MRV
+  indexing, `TaskPlan`, and operational OpenMP are not implemented yet.
 
 These facts are intentional starting conditions, not claims that the accepted
 performance architecture is already implemented.

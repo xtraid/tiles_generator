@@ -29,6 +29,29 @@ typedef struct {
     size_t entry_mark;
 } SearchFrame;
 
+typedef enum {
+    SEARCH_STACK_FIXED,
+    SEARCH_STACK_DYNAMIC
+} SearchStackMode;
+
+typedef struct {
+    SearchStackMode stack_mode;
+    bool record_initial_trail;
+} SolverMechanisms;
+
+typedef enum {
+    TRAIL_PHASE_INITIAL,
+    TRAIL_PHASE_SEARCH
+} TrailPhase;
+
+typedef struct {
+    SearchFrame *frames;
+    size_t count;
+    size_t capacity;
+    size_t limit;
+    size_t allocated_bytes;
+} SearchStack;
+
 typedef struct {
     const Region *region;
     SolverTables tables;
@@ -42,6 +65,8 @@ typedef struct {
     TrailEntry *trail;
     size_t trail_count;
     size_t trail_capacity;
+    TrailPhase trail_phase;
+    bool record_trail;
 
     size_t *queue;
     size_t queue_count;
@@ -109,8 +134,14 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->domain_reductions == 0 &&
         metrics->propagated_arcs == 0 &&
         metrics->mrv_cells_scanned == 0 &&
+        metrics->initial_trail_writes == 0 &&
+        metrics->search_trail_writes == 0 &&
         metrics->trail_peak == 0 &&
+        metrics->trail_capacity_peak == 0 &&
+        metrics->trail_bytes_peak == 0 &&
         metrics->queue_peak == 0 &&
+        metrics->dfs_stack_capacity_peak == 0 &&
+        metrics->dfs_stack_bytes_peak == 0 &&
         metrics->max_depth == 0;
 }
 
@@ -208,6 +239,11 @@ static bool ensure_trail_capacity(SolverState *state, size_t needed)
 
     state->trail = resized;
     state->trail_capacity = capacity;
+    if (state->collect_metrics &&
+        capacity > state->metrics.trail_capacity_peak) {
+        state->metrics.trail_capacity_peak = capacity;
+        state->metrics.trail_bytes_peak = bytes;
+    }
     return true;
 }
 
@@ -291,17 +327,19 @@ static bool restrict_domain(
         return true;
     }
 
-    if (state->trail_count == SIZE_MAX) {
-        return false;
-    }
-    if (!ensure_trail_capacity(state, state->trail_count + 1)) {
-        return false;
-    }
+    if (state->record_trail) {
+        if (state->trail_count == SIZE_MAX) {
+            return false;
+        }
+        if (!ensure_trail_capacity(state, state->trail_count + 1)) {
+            return false;
+        }
 
-    state->trail[state->trail_count++] = (TrailEntry) {
-        .cell_index = cell_index,
-        .old_domain = old_domain,
-    };
+        state->trail[state->trail_count++] = (TrailEntry) {
+            .cell_index = cell_index,
+            .old_domain = old_domain,
+        };
+    }
 
     if (domain_is_singleton(old_domain) &&
         !domain_is_singleton(new_domain)) {
@@ -314,6 +352,13 @@ static bool restrict_domain(
     state->domains[cell_index] = new_domain;
     if (state->collect_metrics) {
         ++state->metrics.domain_reductions;
+        if (state->record_trail) {
+            if (state->trail_phase == TRAIL_PHASE_INITIAL) {
+                ++state->metrics.initial_trail_writes;
+            } else {
+                ++state->metrics.search_trail_writes;
+            }
+        }
         if (state->trail_count > state->metrics.trail_peak) {
             state->metrics.trail_peak = state->trail_count;
         }
@@ -531,7 +576,99 @@ static void note_dfs_node(SolverState *state, size_t depth)
     }
 }
 
-static WangSolveStatus search(SolverState *state)
+static bool search_stack_resize(SearchStack *stack, size_t capacity)
+{
+    size_t bytes;
+    if (capacity == 0 || capacity > stack->limit ||
+        !checked_mul_size(capacity, sizeof(*stack->frames), &bytes)) {
+        return false;
+    }
+
+    SearchFrame *resized = realloc(stack->frames, bytes);
+    if (resized == NULL) {
+        return false;
+    }
+    stack->frames = resized;
+    stack->capacity = capacity;
+    stack->allocated_bytes = bytes;
+    return true;
+}
+
+static bool search_stack_init(
+    SearchStack *stack,
+    size_t limit,
+    SearchStackMode mode
+)
+{
+    enum { INITIAL_DYNAMIC_CAPACITY = 16 };
+
+    *stack = (SearchStack){ .limit = limit };
+    const size_t initial_capacity =
+        mode == SEARCH_STACK_DYNAMIC && limit > INITIAL_DYNAMIC_CAPACITY
+            ? INITIAL_DYNAMIC_CAPACITY
+            : limit;
+    size_t bytes;
+    if (initial_capacity == 0 ||
+        !checked_mul_size(
+            initial_capacity,
+            sizeof(*stack->frames),
+            &bytes
+        )) {
+        return false;
+    }
+    stack->frames = malloc(bytes);
+    if (stack->frames == NULL) {
+        return false;
+    }
+    stack->capacity = initial_capacity;
+    stack->allocated_bytes = bytes;
+    return true;
+}
+
+static bool search_stack_push(SearchStack *stack, SearchFrame frame)
+{
+    if (stack->count == stack->limit) {
+        return false;
+    }
+    if (stack->count == stack->capacity) {
+        size_t capacity = stack->capacity;
+        if (capacity > stack->limit / 2) {
+            capacity = stack->limit;
+        } else {
+            capacity *= 2;
+        }
+        if (capacity <= stack->capacity ||
+            !search_stack_resize(stack, capacity)) {
+            return false;
+        }
+    }
+
+    stack->frames[stack->count++] = frame;
+    return true;
+}
+
+static void search_stack_destroy(SearchStack *stack)
+{
+    free(stack->frames);
+    *stack = (SearchStack){0};
+}
+
+static void note_search_stack_capacity(
+    SolverState *state,
+    const SearchStack *stack
+)
+{
+    if (state->collect_metrics &&
+        stack->capacity > state->metrics.dfs_stack_capacity_peak) {
+        state->metrics.dfs_stack_capacity_peak = stack->capacity;
+        state->metrics.dfs_stack_bytes_peak = stack->allocated_bytes;
+    }
+}
+
+static WangSolveStatus search(
+    SolverState *state,
+    SearchStackMode stack_mode
+)
 {
     note_dfs_node(state, 0);
 
@@ -540,40 +677,34 @@ static WangSolveStatus search(SolverState *state)
         return WANG_SOLVE_SAT;
     }
 
-    size_t stack_bytes;
-    if (!checked_mul_size(
-            state->active_count,
-            sizeof(SearchFrame),
-            &stack_bytes
-        )) {
+    SearchStack stack;
+    if (!search_stack_init(&stack, state->active_count, stack_mode)) {
         return WANG_SOLVE_ERROR;
     }
-
-    SearchFrame *stack = malloc(stack_bytes);
-    if (stack == NULL) {
-        return WANG_SOLVE_ERROR;
-    }
+    note_search_stack_capacity(state, &stack);
 
     const size_t root_cell = select_mrv_cell(state);
     if (root_cell == SIZE_MAX) {
-        free(stack);
+        search_stack_destroy(&stack);
         return WANG_SOLVE_ERROR;
     }
 
-    stack[0] = (SearchFrame) {
-        .cell_index = root_cell,
-        .candidates = state->domains[root_cell],
-        .entry_mark = 0,
-    };
-    size_t stack_count = 1;
+    if (!search_stack_push(&stack, (SearchFrame) {
+            .cell_index = root_cell,
+            .candidates = state->domains[root_cell],
+            .entry_mark = 0,
+        })) {
+        search_stack_destroy(&stack);
+        return WANG_SOLVE_ERROR;
+    }
     WangSolveStatus status = WANG_SOLVE_ERROR;
 
-    while (stack_count != 0) {
-        SearchFrame *frame = &stack[stack_count - 1];
+    while (stack.count != 0) {
+        SearchFrame *frame = &stack.frames[stack.count - 1];
         if (frame->candidates == 0) {
             const size_t entry_mark = frame->entry_mark;
-            --stack_count;
-            if (stack_count == 0) {
+            --stack.count;
+            if (stack.count == 0) {
                 status = WANG_SOLVE_UNSAT;
                 break;
             }
@@ -611,7 +742,7 @@ static WangSolveStatus search(SolverState *state)
             break;
         }
 
-        const size_t branch_depth = stack_count;
+        const size_t branch_depth = stack.count;
         if (propagated == PROPAGATE_CONFLICT) {
             if (!record_failed_leaf(
                     state,
@@ -632,16 +763,15 @@ static WangSolveStatus search(SolverState *state)
 
             const size_t child_cell = select_mrv_cell(state);
             if (child_cell == SIZE_MAX ||
-                stack_count >= state->active_count) {
+                !search_stack_push(&stack, (SearchFrame) {
+                    .cell_index = child_cell,
+                    .candidates = state->domains[child_cell],
+                    .entry_mark = mark,
+                })) {
                 rollback_to(state, mark);
                 break;
             }
-
-            stack[stack_count++] = (SearchFrame) {
-                .cell_index = child_cell,
-                .candidates = state->domains[child_cell],
-                .entry_mark = mark,
-            };
+            note_search_stack_capacity(state, &stack);
             continue;
         }
 
@@ -651,7 +781,7 @@ static WangSolveStatus search(SolverState *state)
         }
     }
 
-    free(stack);
+    search_stack_destroy(&stack);
     return status;
 }
 
@@ -813,10 +943,11 @@ void wang_solve_result_destroy(WangSolveResult *result)
     *result = (WangSolveResult){0};
 }
 
-WangSolveStatus wang_solve_serial(
+static WangSolveStatus solve_wang_core(
     const Region *region,
     const WangSolverOptions *options,
-    WangSolveResult *out_result
+    WangSolveResult *out_result,
+    SolverMechanisms mechanisms
 )
 {
     if (!result_is_destroyed(out_result) ||
@@ -837,6 +968,7 @@ WangSolveStatus wang_solve_serial(
         (options->flags & WANG_SOLVE_COLLECT_METRICS) != 0;
     state.capture_unsat_snapshot = options != NULL &&
         (options->flags & WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT) != 0;
+    state.record_trail = mechanisms.record_initial_trail;
     build_solver_tables(&state.tables);
     if (!solver_tables_are_valid(&state.tables)) {
         return WANG_SOLVE_ERROR;
@@ -891,7 +1023,9 @@ WangSolveStatus wang_solve_serial(
             status = WANG_SOLVE_UNSAT;
         } else {
             state.trail_count = 0;
-            status = search(&state);
+            state.trail_phase = TRAIL_PHASE_SEARCH;
+            state.record_trail = true;
+            status = search(&state, mechanisms.stack_mode);
         }
     }
 
@@ -951,4 +1085,38 @@ WangSolveStatus wang_solve_serial(
     solver_state_destroy(&state);
     *out_result = result;
     return status;
+}
+
+WangSolveStatus wang_solve_serial(
+    const Region *region,
+    const WangSolverOptions *options,
+    WangSolveResult *out_result
+)
+{
+    return solve_wang_core(
+        region,
+        options,
+        out_result,
+        (SolverMechanisms) {
+            .stack_mode = SEARCH_STACK_FIXED,
+            .record_initial_trail = true,
+        }
+    );
+}
+
+WangSolveStatus wang_solve_optimized(
+    const Region *region,
+    const WangSolverOptions *options,
+    WangSolveResult *out_result
+)
+{
+    return solve_wang_core(
+        region,
+        options,
+        out_result,
+        (SolverMechanisms) {
+            .stack_mode = SEARCH_STACK_DYNAMIC,
+            .record_initial_trail = false,
+        }
+    );
 }
