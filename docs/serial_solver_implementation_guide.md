@@ -1,51 +1,52 @@
-# Guida tecnica: verificatore, solver seriale e trace delle leaf
+# Technical guide: verifier, serial solver, and leaf trace
 
 Implementation status as of 17 August 2026: this guide has been implemented.
 The public headers and tests are authoritative where they differ from an
 earlier prospective detail below. The document remains the technical contract
 and maintenance handoff for the module.
 
-## 1. Scopo del lavoro
+## 1. Scope
 
-Questa guida e un handoff operativo per implementare il prossimo blocco del
-progetto senza dover ricostruire le decisioni architetturali dalla cronologia.
+This guide is an operational handoff for implementing the project's next block
+without having to reconstruct the architectural decisions from its history.
 
-Il lavoro comprende:
+The work includes:
 
-1. un verificatore indipendente di tiling completi;
-2. un solver seriale deterministico basato su domini a bitmask;
-3. propagazione locale, MRV e rollback tramite undo trail;
-4. metriche opzionali;
-5. uno snapshot renderizzabile sempre restituito per `SAT` e disponibile per
-   `UNSAT` soltanto tramite flag diagnostico esplicito;
-6. un trace binario opzionale di tutte le leaf fallite, scritto tramite
-   `mmap` in un file di capacita massima nota e troncato alla dimensione
-   effettiva al termine.
+1. an independent verifier for complete tilings;
+2. a deterministic serial solver based on bitmask domains;
+3. local propagation, MRV, and rollback through an undo trail;
+4. optional metrics;
+5. a renderable snapshot that is always returned for `SAT` and available for
+   `UNSAT` only through an explicit diagnostic flag;
+6. an optional binary trace of all failed leaves, written through `mmap` to a
+   file with a known maximum capacity and truncated to its actual size on
+   completion.
 
-Non implementare in questo blocco:
+Do not implement in this block:
 
-- parser della formula;
-- OpenMP o altre forme di parallelismo;
-- memoization, skip list, clause learning o backjumping;
-- Z3, JSON o rendering;
-- un certificato formale e compatto di insoddisfacibilita;
-- modifiche al builder Yang-Zhang o al tileset, salvo correzioni dimostrate da
-  test indipendenti.
+- a formula parser;
+- OpenMP or other forms of parallelism;
+- memoization, skip lists, clause learning, or backjumping;
+- Z3, JSON, or rendering;
+- a compact formal certificate of unsatisfiability;
+- changes to the Yang-Zhang builder or the tileset, except for corrections
+  demonstrated by independent tests.
 
-Il solver riceve esclusivamente un `Region`. Le 23 tessere vengono sempre
-lette dal `TILESET` canonico in `src/core/tile.c`; non si passa un tileset come
-parametro e non si duplicano manualmente le compatibilita.
+The solver receives only a `Region`. The 23 tiles are always read from the
+canonical `TILESET` in `src/core/tile.c`; a tileset is not passed as a
+parameter, and compatibility information is not duplicated manually.
 
-## 2. Stato e vincoli del repository
+## 2. Repository status and constraints
 
-API gia implementate e autorevoli:
+The following implemented APIs are authoritative:
 
-- `include/wang/tile.h`: `TileId`, `ColorId`, direzioni, colori, 23 tessere;
-- `include/wang/region.h`: geometria densa row-major, active mask e bordi;
-- `include/wang/yang_zhang.h`: costruzione formula -> regione;
-- `wang_tiles_match()`: matching locale orientato di riferimento.
+- `include/wang/tile.h`: `TileId`, `ColorId`, directions, colors, and 23 tiles;
+- `include/wang/region.h`: dense row-major geometry, active mask, and
+  boundaries;
+- `include/wang/yang_zhang.h`: formula-to-region construction;
+- `wang_tiles_match()`: reference implementation for oriented local matching.
 
-File implementati da questo blocco:
+Files implemented by this block:
 
 - `include/wang/verify.h`;
 - `src/verify/verify_tiling.c`;
@@ -53,50 +54,49 @@ File implementati da questo blocco:
 - `src/solver/solver_serial.c`;
 - `src/solver/failed_leaf_trace.c` and its private header.
 
-Test aggiunti:
+Tests added:
 
 - `tests/c/test_verify.c`;
 - `tests/c/test_solver.c`;
 - `tests/c/test_solver_stress.c`;
 - `tests/c/test_solver_yang_zhang.c`.
 
-Il `Makefile` usa wildcard per i test C e include gia verifier e solver nella
-libreria seriale. Non aggiungere una build system parallela.
+The `Makefile` uses wildcards for C tests and already includes the verifier and
+solver in the serial library. Do not add a parallel build system.
 
-Regole progettuali da preservare:
+Design rules to preserve:
 
-- `TILESET` e l'unica sorgente di verita per lati e colori;
-- il verificatore non usa stato o cache del solver;
-- il solver non legge `AdjacentSwap` o metadata dei gadget;
-- le tessere possono essere riutilizzate senza limite;
-- rotazioni e riflessioni non sono consentite;
-- nessuno stato mutabile globale;
-- ogni output pubblico e costruito transazionalmente.
+- `TILESET` is the single source of truth for edges and colors;
+- the verifier does not use solver state or caches;
+- the solver does not read `AdjacentSwap` or gadget metadata;
+- tiles may be reused without limit;
+- rotations and reflections are not allowed;
+- there is no mutable global state;
+- every public output is constructed transactionally.
 
-## 3. Rappresentazione dei domini
+## 3. Domain representation
 
-`TILE_COUNT == 23`, quindi un `uint32_t` contiene il dominio completo di una
-cella:
+`TILE_COUNT == 23`, so a `uint32_t` contains the complete domain of a cell:
 
 ```c
 #define WANG_DOMAIN_ALL \
     ((UINT32_C(1) << TILE_COUNT) - UINT32_C(1))
 ```
 
-Convenzioni:
+Conventions:
 
-- bit `t` impostato: `TILESET[t]` e ancora ammessa;
-- dominio zero su cella attiva: conflitto;
-- un solo bit: tessera piazzata/forzata;
-- piu bit: cella irrisolta;
-- dominio zero su cella inattiva: valore normale, non conflitto.
+- bit `t` set: `TILESET[t]` is still allowed;
+- zero domain on an active cell: conflict;
+- exactly one bit: placed/forced tile;
+- multiple bits: unresolved cell;
+- zero domain on an inactive cell: normal value, not a conflict.
 
-Non introdurre un array `assignment`: per le celle attive l'assegnazione e
-derivabile dai domini singleton.
+Do not introduce an `assignment` array: for active cells, the assignment can
+be derived from singleton domains.
 
-## 4. API del verificatore
+## 4. Verifier API
 
-Definire in `include/wang/verify.h`:
+Define the following in `include/wang/verify.h`:
 
 ```c
 #ifndef WANG_VERIFY_H
@@ -130,32 +130,32 @@ WangVerifyStatus wang_verify_tiling(
 #endif /* WANG_VERIFY_H */
 ```
 
-Se un altro modulo ha bisogno di `TILE_NONE`, e accettabile spostare la macro
-in `tile.h`; deve comunque esistere una sola definizione.
+If another module needs `TILE_NONE`, moving the macro to `tile.h` is
+acceptable; there must still be exactly one definition.
 
-Il tiling e un array denso parallelo a `Region.cells`:
+The tiling is a dense array parallel to `Region.cells`:
 
-- lunghezza esatta `width * height`;
-- cella attiva: `TileId < TILE_COUNT`;
-- cella inattiva: obbligatoriamente `TILE_NONE`.
+- exact length `width * height`;
+- active cell: `TileId < TILE_COUNT`;
+- inactive cell: must be `TILE_NONE`.
 
-Il verificatore deve:
+The verifier must:
 
-1. validare puntatori, dimensioni e prodotto `width * height`;
-2. rifiutare colori fuori range;
-3. rifiutare vincoli di bordo su celle inattive o su lati che toccano una
-   cella attiva;
-4. verificare ogni vincolo esposto diverso da `COLOR_NONE`;
-5. confrontare direttamente gli edge delle tessere adiacenti;
-6. visitare solo `E` e `S` per non controllare due volte ogni adiacenza.
+1. validate pointers, dimensions, and the `width * height` product;
+2. reject out-of-range colors;
+3. reject boundary constraints on inactive cells or on edges touching an
+   active cell;
+4. check every exposed constraint other than `COLOR_NONE`;
+5. compare the edges of adjacent tiles directly;
+6. visit only `E` and `S` to avoid checking each adjacency twice.
 
-Non chiamare funzioni del solver e non usare `compat`. Il verifier puo leggere
-direttamente `TILESET[a].edge[d]` e `TILESET[b].edge[opposite(d)]`.
+Do not call solver functions or use `compat`. The verifier may read
+`TILESET[a].edge[d]` and `TILESET[b].edge[opposite(d)]` directly.
 
-## 5. API pubblica del solver
+## 5. Public solver API
 
-Definire in `include/wang/solver.h` una API simile alla seguente. I nomi sono
-normativi salvo un motivo concreto emerso durante l'implementazione.
+Define an API similar to the following in `include/wang/solver.h`. The names
+are normative unless a concrete implementation reason requires a change.
 
 ```c
 #ifndef WANG_SOLVER_H
@@ -201,22 +201,23 @@ typedef struct {
 typedef struct {
     uint32_t flags;
 
-    /* Richiesti solo con WANG_SOLVE_TRACE_FAILED_LEAVES. */
+    /* Required only with WANG_SOLVE_TRACE_FAILED_LEAVES. */
     const char *failed_leaf_path;
     size_t failed_leaf_capacity;
 } WangSolverOptions;
 
 typedef struct {
     /*
-     * Snapshot denso row-major, uno uint32_t per RegionCell.
-     * SAT: tutti i domini attivi sono singleton.
-     * UNSAT con WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT: migliore leaf fallita
-     * secondo la regola in Sezione 10. Senza flag: NULL e count zero.
+     * Dense row-major snapshot, one uint32_t per RegionCell.
+     * SAT: all active domains are singletons.
+     * UNSAT with WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT: best failed leaf
+     * according to the rule in Section 10. Without the flag: NULL and a
+     * zero count.
      */
     uint32_t *domains;
     size_t domain_count;
 
-    /* SIZE_MAX per SAT; indice della cella a dominio zero per UNSAT. */
+    /* SIZE_MAX for SAT; index of the zero-domain cell for UNSAT. */
     size_t conflict_cell;
 
     size_t resolved_count;
@@ -225,7 +226,7 @@ typedef struct {
     size_t traced_leaf_count;
     bool trace_truncated;
 
-    /* Tutti zero se WANG_SOLVE_COLLECT_METRICS non e richiesto. */
+    /* All zero unless WANG_SOLVE_COLLECT_METRICS is requested. */
     WangSolverMetrics metrics;
 } WangSolveResult;
 
@@ -240,23 +241,23 @@ void wang_solve_result_destroy(WangSolveResult *result);
 #endif /* WANG_SOLVER_H */
 ```
 
-Contratto:
+Contract:
 
-- `options == NULL` equivale a flag zero;
-- flag sconosciuti sono un errore;
-- `out_result` deve essere azzerato o precedentemente distrutto;
-- su `SAT` e `UNSAT`, il chiamante possiede `out_result->domains`;
-- su `ERROR`, l'output resta completamente distrutto;
-- `wang_solve_result_destroy()` accetta `NULL`, libera lo snapshot e azzera
-  ogni campo;
-- il solver non crea un file se il flag trace non e presente;
-- con il flag trace sono obbligatori path non vuoto e capacita maggiore di
-  zero;
-- il path di trace e un output esplicito: viene creato o troncato dal solver.
+- `options == NULL` is equivalent to zero flags;
+- unknown flags are an error;
+- `out_result` must be zero-initialized or previously destroyed;
+- on `SAT` and `UNSAT`, the caller owns `out_result->domains`;
+- on `ERROR`, the output remains in a fully destroyed state;
+- `wang_solve_result_destroy()` accepts `NULL`, frees the snapshot, and zeros
+  every field;
+- the solver does not create a file unless the trace flag is present;
+- with the trace flag, a nonempty path and capacity greater than zero are
+  required;
+- the trace path is an explicit output: the solver creates or truncates it.
 
-## 6. Strutture private del solver
+## 6. Private solver structures
 
-Tutto quanto segue deve restare in `solver_serial.c`.
+Everything that follows must remain in `solver_serial.c`.
 
 ```c
 typedef struct {
@@ -302,112 +303,112 @@ typedef struct {
     bool capture_unsat_snapshot;
     WangSolverMetrics metrics;
 
-    /* writer mmap privato, se abilitato */
+    /* private mmap writer, if enabled */
 } SolverState;
 ```
 
-La separazione concettuale da preservare e:
+The conceptual separation to preserve is:
 
-- `SolverTables`: dati derivati immutabili, in futuro condivisibili;
-- `SolverState`: dati mutabili privati del singolo ramo/worker.
+- `SolverTables`: immutable derived data that may be shared in the future;
+- `SolverState`: mutable data private to an individual branch/worker.
 
-Non usare skip list. Il trail e una pila contigua e l'MRV iniziale e una
-scansione lineare cache-friendly.
+Do not use skip lists. The trail is a contiguous stack, and the initial MRV is
+a cache-friendly linear scan.
 
-## 7. Tabelle private di compatibilita
+## 7. Private compatibility tables
 
-Costruire prima `edge_mask`:
+Build `edge_mask` first:
 
 ```c
 edge_mask[d][color] |= UINT32_C(1) << tile_id;
 ```
 
-Poi derivare:
+Then derive:
 
 ```c
 compat[d][tile_id] =
     edge_mask[opposite(d)][TILESET[tile_id].edge[d]];
 ```
 
-Significato:
+Meaning:
 
-- `edge_mask[d][c]`: tessere con colore `c` sul lato `d`;
-- `compat[d][t]`: tessere ammesse nella cella che si trova in direzione `d`
-  rispetto a una cella contenente `t`.
+- `edge_mask[d][c]`: tiles with color `c` on edge `d`;
+- `compat[d][t]`: tiles allowed in the cell located in direction `d` from a
+  cell containing `t`.
 
-Le tabelle sono cache, non sorgenti di verita. Aggiungere un test esaustivo
-indiretto o una funzione privata di assert/test che, per ogni `d`, `a`, `b`,
-stabilisca l'equivalenza:
+The tables are caches, not sources of truth. Add an indirect exhaustive test
+or a private assertion/test function that establishes the following
+equivalence for every `d`, `a`, and `b`:
 
 ```text
 bit b in compat[d][a]  <=>  wang_tiles_match(&TILESET[a], d, &TILESET[b])
 ```
 
-Non esportare queste tabelle nell'header pubblico.
+Do not export these tables in the public header.
 
-## 8. Inizializzazione dello stato
+## 8. State initialization
 
-Validare il `Region` prima di allocare lo stato:
+Validate the `Region` before allocating the state:
 
-- puntatore e `cells` non nulli;
-- dimensioni positive;
-- prodotto e dimensioni di allocazione senza overflow;
-- colori `COLOR_NONE` oppure `< COLOR_COUNT`;
-- nessun boundary color su celle inattive;
-- nessun boundary color su un lato con vicino attivo.
+- nonnull region pointer and `cells`;
+- positive dimensions;
+- overflow-free product and allocation sizes;
+- colors equal to `COLOR_NONE` or satisfying `< COLOR_COUNT`;
+- no boundary color on inactive cells;
+- no boundary color on an edge with an active neighbor.
 
-Per ogni cella:
+For each cell:
 
-1. se inattiva, `domain = 0` e `neighbor_mask = 0`;
-2. se attiva, partire da `WANG_DOMAIN_ALL`;
-3. costruire i quattro bit del `neighbor_mask`;
-4. per ogni lato esposto con colore `c != COLOR_NONE`:
+1. if inactive, set `domain = 0` and `neighbor_mask = 0`;
+2. if active, start from `WANG_DOMAIN_ALL`;
+3. build the four bits of `neighbor_mask`;
+4. for each exposed edge with color `c != COLOR_NONE`:
 
 ```c
 domain &= tables.edge_mask[dir][c];
 ```
 
-5. contare la cella in `resolved_count` se il dominio e singleton;
-6. se il dominio diventa zero, si ha una leaf fallita a profondita zero.
+5. count the cell in `resolved_count` if the domain is a singleton;
+6. if the domain becomes zero, there is a failed leaf at depth zero.
 
-Una regione valida senza celle attive e `SAT`: il suo snapshot contiene solo
-zeri, ma non esiste alcun conflitto perche nessuna cella e attiva.
+A valid region with no active cells is `SAT`: its snapshot contains only
+zeros, but no conflict exists because no cell is active.
 
-Dopo i boundary mask, eseguire una propagazione iniziale fino al punto fisso.
-E consentito registrare le modifiche nel trail e poi porre `trail_count = 0`
-senza rollback: quello diventa lo stato radice della DFS.
+After applying the boundary masks, perform initial propagation to a fixed
+point. Recording changes in the trail and then setting `trail_count = 0`
+without a rollback is allowed: the resulting state becomes the DFS root.
 
 ## 9. Undo trail
 
-Ogni cambiamento reale di un dominio deve:
+Every actual domain change must:
 
-1. assicurare capacita nel vettore `trail`;
-2. appendere `{ cell_index, old_domain }`;
-3. aggiornare `resolved_count` confrontando cardinalita vecchia e nuova;
-4. scrivere il nuovo dominio;
-5. aggiornare metriche e picchi, se abilitati.
+1. ensure capacity in the `trail` vector;
+2. append `{ cell_index, old_domain }`;
+3. update `resolved_count` by comparing the old and new cardinalities;
+4. write the new domain;
+5. update metrics and peaks, if enabled.
 
-Prima di provare un candidato:
+Before trying a candidate:
 
 ```c
 const size_t mark = state->trail_count;
 ```
 
-Il rollback scorre il trail al contrario fino a `mark`. Deve aggiornare anche
-`resolved_count` confrontando il dominio corrente con quello ripristinato.
+Rollback walks the trail backward to `mark`. It must also update
+`resolved_count` by comparing the current domain with the restored domain.
 
-E corretto registrare piu volte la stessa cella: il rollback inverso ricrea
-esattamente ogni stato intermedio. Non deduplicare il trail.
+Recording the same cell multiple times is correct: reverse rollback recreates
+every intermediate state exactly. Do not deduplicate the trail.
 
-Non copiare l'intero array dei domini a ogni decisione.
+Do not copy the entire domain array at every decision.
 
-## 10. Propagazione e snapshot delle leaf
+## 10. Propagation and leaf snapshots
 
-Usare una coda contigua di indici. Nel baseline sono ammessi duplicati: si
-aggiungera un `in_queue` soltanto se le metriche mostrano un problema reale.
+Use a contiguous queue of indices. The baseline allows duplicates: add an
+`in_queue` mechanism only if metrics reveal a real problem.
 
-Quando cambia il dominio della cella `i`, per ogni vicino attivo `j` nella
-direzione `d`:
+When the domain of cell `i` changes, for each active neighbor `j` in direction
+`d`:
 
 ```c
 uint32_t supported = 0;
@@ -422,145 +423,146 @@ while (candidates != 0) {
 const uint32_t new_domain = domains[j] & supported;
 ```
 
-Se il dominio cambia, salvarlo nel trail e accodare `j`. Se diventa zero,
-conservare lo zero nello stato, registrare la leaf prima del rollback e
-segnalare conflitto.
+If the domain changes, save it to the trail and enqueue `j`. If it becomes
+zero, keep the zero in the state, record the leaf before rollback, and report
+a conflict.
 
-Il solver deve mantenere sempre i metadati della leaf migliore, anche quando il
-trace su file e lo snapshot denso sono disabilitati. Ordine deterministico di
-preferenza:
+The solver must always retain the metadata for the best leaf, even when the
+file trace and dense snapshot are disabled. The deterministic preference order
+is:
 
-1. maggior `resolved_count`;
-2. a parita, maggiore profondita decisionale;
-3. a ulteriore parita, mantenere la prima incontrata.
+1. higher `resolved_count`;
+2. at equal counts, greater decision depth;
+3. if still tied, retain the first one encountered.
 
-Salvare sempre `conflict_cell`, profondita e numero di celle risolte. Soltanto
-con `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT`, allocare `best_snapshot` alla prima
-leaf migliore e copiarvi l'intero array dei domini. Il trace mmap e la cattura
-dello snapshot restano opzioni indipendenti.
+Always save `conflict_cell`, depth, and the number of resolved cells. Only with
+`WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT`, allocate `best_snapshot` for the first
+best leaf and copy the entire domain array into it. The mmap trace and snapshot
+capture remain independent options.
 
-Questo snapshot UNSAT e diagnostico/renderizzabile, non e una prova formale di
-insoddisfacibilita.
+This UNSAT snapshot is diagnostic and renderable; it is not a formal proof of
+unsatisfiability.
 
-## 11. DFS iterativa e MRV
+## 11. Iterative DFS and MRV
 
-Il baseline deve essere deterministico:
+The baseline must be deterministic:
 
-- scegliere una cella attiva con dominio non singleton di cardinalita minima;
-- a parita scegliere l'indice row-major piu piccolo;
-- provare i `TileId` in ordine crescente;
-- visitare i vicini nell'ordine `N`, `E`, `S`, `W`.
+- choose an active cell with a nonsingleton domain of minimum cardinality;
+- on ties, choose the smallest row-major index;
+- try `TileId` values in ascending order;
+- visit neighbors in `N`, `E`, `S`, `W` order.
 
-Una scansione MRV lineare e intenzionale: i domini sono contigui e la lettura
-e cache-friendly. Non mantenere una struttura ordinata mutabile. Se il
-profiling mostrera che MRV domina il tempo, la prima alternativa da provare e
-una struttura a 24 bucket, non una skip list.
+A linear MRV scan is intentional: the domains are contiguous, and reading them
+is cache-friendly. Do not maintain a mutable ordered structure. If profiling
+shows that MRV dominates execution time, the first alternative to try is a
+24-bucket structure, not a skip list.
 
-La visita usa uno stack esplicito allocato nell'heap, con al massimo un frame
-per cella attiva. Questo evita che una regione grande esaurisca lo stack del
-processo. Un frame contiene la cella MRV del nodo, i candidati non ancora
-provati e il marker del trail precedente al ramo che ha aperto il nodo.
+Traversal uses an explicit heap-allocated stack, with at most one frame per
+active cell. This prevents a large region from exhausting the process stack. A
+frame contains the node's MRV cell, the candidates not yet tried, and the trail
+marker preceding the branch that opened the node.
 
-Schema DFS:
+DFS outline:
 
 ```text
-conta il nodo radice
-se tutto e risolto: SAT
-inserisci il frame MRV radice
+count the root node
+if everything is resolved: SAT
+push the root MRV frame
 
-finche lo stack non e vuoto:
-    frame = cima dello stack
+while the stack is not empty:
+    frame = top of stack
 
-    se non restano candidati:
-        rimuovi il frame
-        se era la radice: UNSAT
+    if no candidates remain:
+        pop the frame
+        if it was the root: UNSAT
         rollback(frame.entry_mark)
-        conta il backtrack del ramo padre
-        continua
+        count the parent branch backtrack
+        continue
 
-    estrai il TileId minimo dai candidati del frame
+    extract the smallest TileId from the frame candidates
     mark = trail_count
-    restringi la cella al singleton e propaga
+    restrict the cell to the singleton and propagate
 
-    se c'e conflitto:
-        registra la leaf
-        rollback(mark) e conta il backtrack
-    altrimenti se tutto e risolto:
-        SAT senza rollback
-    altrimenti:
-        conta il nuovo nodo
-        inserisci { nuova cella MRV, suo dominio, mark }
+    if there is a conflict:
+        record the leaf
+        rollback(mark) and count the backtrack
+    else if everything is resolved:
+        SAT without rollback
+    else:
+        count the new node
+        push { new MRV cell, its domain, mark }
 ```
 
-La profondita di un ramo coincide con il numero di frame durante il tentativo
-del candidato. Ordine di visita, metriche e semantica del rollback restano gli
-stessi della formulazione ricorsiva.
+The depth of a branch equals the number of frames while trying the candidate.
+Traversal order, metrics, and rollback semantics remain the same as in the
+recursive formulation.
 
-Fallimenti di allocazione o del writer sono `ERROR`, non `UNSAT`.
+Allocation or writer failures are `ERROR`, not `UNSAT`.
 
-Non implementare memoization nel baseline. Con ordine deterministico e domini
-monotoni e improbabile raggiungere due volte lo stesso stato globale, mentre
-una hash table introdurrebbe memoria e accessi casuali.
+Do not implement memoization in the baseline. With deterministic ordering and
+monotonic domains, reaching the same global state twice is unlikely, while a
+hash table would introduce extra memory use and random accesses.
 
-## 12. Verifica obbligatoria del risultato SAT
+## 12. Mandatory SAT-result verification
 
-Prima di pubblicare `SAT`:
+Before publishing `SAT`:
 
-1. costruire temporaneamente un array `TileId[cell_count]`;
-2. scrivere `TILE_NONE` sulle celle inattive;
-3. estrarre il solo bit da ogni dominio attivo singleton;
-4. chiamare `wang_verify_tiling()`;
-5. accettare `SAT` soltanto se il risultato e `WANG_VERIFY_VALID`.
+1. temporarily build a `TileId[cell_count]` array;
+2. write `TILE_NONE` to inactive cells;
+3. extract the only bit from each active singleton domain;
+4. call `wang_verify_tiling()`;
+5. accept `SAT` only if the result is `WANG_VERIFY_VALID`.
 
-Se il verificatore rifiuta un output del solver, restituire `ERROR`: e un bug
-interno, non `UNSAT`.
+If the verifier rejects solver output, return `ERROR`: this is an internal bug,
+not `UNSAT`.
 
-Solo dopo questa verifica copiare i domini finali nello snapshot pubblico.
+Only after this check should the final domains be copied into the public
+snapshot.
 
-## 13. Metriche opzionali
+## 13. Optional metrics
 
-Aggiornare i contatori pubblici soltanto se e presente
-`WANG_SOLVE_COLLECT_METRICS`. I campi devono essere tutti zero altrimenti.
+Update the public counters only when `WANG_SOLVE_COLLECT_METRICS` is present.
+Otherwise, every field must be zero.
 
-Definizioni da mantenere stabili nei test e nella documentazione:
+Definitions that must remain stable in tests and documentation:
 
-- `dfs_nodes`: stati di ricerca visitati, inclusa la radice;
-- `decisions`: candidati singleton effettivamente tentati;
-- `backtracks`: candidati falliti e ripristinati;
-- `failed_leaves`: conflitti terminali osservati;
-- `domain_reductions`: scritture che restringono davvero un dominio;
-- `propagated_arcs`: archi cella-vicino elaborati;
-- `mrv_cells_scanned`: celle attive ispezionate dalle scansioni MRV;
-- `initial_trail_writes`: entry realmente aggiunte al trail durante la
-  propagazione iniziale;
-- `search_trail_writes`: entry realmente aggiunte al trail durante la DFS;
-- `trail_peak`: massimo numero simultaneo di entry nel trail;
-- `trail_capacity_peak`: massima capacita allocata del trail in entry;
-- `trail_bytes_peak`: byte corrispondenti alla massima capacita allocata del
-  trail;
-- `queue_peak`: massimo numero di indici non ancora estratti presenti
-  simultaneamente nella coda di una propagazione;
-- `dfs_stack_capacity_peak`: massima capacita allocata dello stack DFS in
-  frame;
-- `dfs_stack_bytes_peak`: byte corrispondenti alla massima capacita allocata
-  dello stack DFS;
-- `max_depth`: massima profondita DFS raggiunta.
+- `dfs_nodes`: search states visited, including the root;
+- `decisions`: singleton candidates actually tried;
+- `backtracks`: failed candidates that were restored;
+- `failed_leaves`: terminal conflicts observed;
+- `domain_reductions`: writes that actually narrow a domain;
+- `propagated_arcs`: processed cell-neighbor arcs;
+- `mrv_cells_scanned`: active cells inspected by MRV scans;
+- `initial_trail_writes`: entries actually added to the trail during initial
+  propagation;
+- `search_trail_writes`: entries actually added to the trail during DFS;
+- `trail_peak`: maximum number of entries simultaneously present in the trail;
+- `trail_capacity_peak`: maximum allocated trail capacity in entries;
+- `trail_bytes_peak`: bytes corresponding to the maximum allocated trail
+  capacity;
+- `queue_peak`: maximum number of not-yet-popped indices simultaneously
+  present in a propagation queue;
+- `dfs_stack_capacity_peak`: maximum allocated DFS stack capacity in frames;
+- `dfs_stack_bytes_peak`: bytes corresponding to the maximum allocated DFS
+  stack capacity;
+- `max_depth`: maximum DFS depth reached.
 
-Il tempo non appartiene a `SolverMetrics`: benchmark e chiamante misurano il
-tempo esternamente.
+Time is not part of `SolverMetrics`: benchmarks and callers measure it
+externally.
 
-## 14. Trace binario delle leaf tramite mmap
+## 14. Binary mmap leaf trace
 
-### 14.1 Semantica
+### 14.1 Semantics
 
-Il trace e opzionale. Se abilitato, contiene ogni leaf fallita incontrata
-prima del rollback, fino a `failed_leaf_capacity`.
+The trace is optional. If enabled, it contains every failed leaf encountered
+before rollback, up to `failed_leaf_capacity`.
 
-Il file e diagnostico, non un certificato formale UNSAT. Puo contenere leaf
-anche quando il risultato finale e `SAT`, perche il solver puo aver fallito
-rami precedenti.
+The file is diagnostic, not a formal UNSAT certificate. It may contain leaves
+even when the final result is `SAT`, because the solver may have failed on
+earlier branches.
 
-Il numero esatto di leaf non e noto prima della ricerca. E noto invece:
+The exact number of leaves is not known before the search. The following is
+known instead:
 
 ```text
 record_size = aligned_record_prefix + cell_count * sizeof(uint32_t)
@@ -568,13 +570,13 @@ allocated_file_size = file_header_size
                     + failed_leaf_capacity * record_size
 ```
 
-Il file viene quindi preallocato alla capacita richiesta e troncato al numero
-di record realmente scritto al termine.
+The file is therefore preallocated to the requested capacity and truncated to
+the number of records actually written on completion.
 
-### 14.2 Formato versione 1
+### 14.2 Version 1 format
 
-Non scrivere direttamente struct C senza controllarne layout e dimensione.
-Il formato v1 e little-endian e ha header di 64 byte.
+Do not write C structs directly without checking their layout and size. The v1
+format is little-endian and has a 64-byte header.
 
 ```c
 typedef struct {
@@ -592,22 +594,22 @@ typedef struct {
 } FailedLeafFileHeader;
 ```
 
-Il layout sopra e schematico. L'implementazione attuale scrive ogni campo a
-offset esplicito con helper little-endian e non dipende da padding o
-`sizeof(FailedLeafFileHeader)`. Se in futuro si decide di scrivere una struct
-C direttamente, aggiungere almeno:
+The layout above is schematic. The current implementation writes each field at
+an explicit offset with little-endian helpers and does not depend on padding or
+`sizeof(FailedLeafFileHeader)`. If a future change writes a C struct directly,
+add at least:
 
 ```c
 _Static_assert(sizeof(FailedLeafFileHeader) == 64,
                "failed-leaf header must be 64 bytes");
 ```
 
-Lo `_Static_assert` controlla il layout, non l'endianness. Scrivere i campi con
-piccoli helper little-endian oppure rifiutare esplicitamente a compile/runtime
-una piattaforma non little-endian; non produrre silenziosamente un file con
-byte order diverso da quello dichiarato.
+The `_Static_assert` checks layout, not endianness. Write fields with small
+little-endian helpers, or explicitly reject a non-little-endian platform at
+compile time or runtime; do not silently produce a file with a byte order that
+differs from the declared one.
 
-Ogni record comincia con 32 byte:
+Each record begins with 32 bytes:
 
 ```c
 typedef struct {
@@ -618,156 +620,157 @@ typedef struct {
 } FailedLeafRecordHeader;
 ```
 
-Seguono esattamente `cell_count` valori `uint32_t`, in ordine row-major. Il
-record viene completato con zero padding fino al multiplo di 8 successivo:
+Exactly `cell_count` `uint32_t` values follow in row-major order. The record is
+completed with zero padding up to the next multiple of 8:
 
 ```text
 raw_record_size = 32 + 4 * cell_count
 record_size = align_up(raw_record_size, 8)
 ```
 
-Controllare tutti gli overflow prima di `open`, `ftruncate` e `mmap`.
+Check every overflow before `open`, `ftruncate`, and `mmap`.
 
-### 14.3 Ciclo di vita del writer
+### 14.3 Writer lifecycle
 
-Il writer e isolato in `src/solver/failed_leaf_trace.c` con header privato al
-solver. Non renderlo parte dell'API generale di serializzazione.
+The writer is isolated in `src/solver/failed_leaf_trace.c`, with a header
+private to the solver. Do not make it part of the general serialization API.
 
-Sequenza:
+Sequence:
 
-1. aprire `failed_leaf_path` con `O_RDWR | O_CREAT | O_TRUNC`, modo `0666`;
-2. calcolare la dimensione massima in modo checked;
+1. open `failed_leaf_path` with `O_RDWR | O_CREAT | O_TRUNC`, mode `0666`;
+2. calculate the maximum size with checked arithmetic;
 3. `ftruncate(fd, allocated_size)`;
 4. `mmap(..., PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)`;
-5. inizializzare l'header con `record_count = 0`;
-6. per ogni leaf disponibile fare `memcpy` di header record e domini;
-7. se arriva una leaf oltre capacita, non scriverla e impostare
+5. initialize the header with `record_count = 0`;
+6. for every failed leaf to record, use `memcpy` for the record header and
+   domains;
+7. if a leaf arrives after capacity is exhausted, do not write it and set
    `trace_truncated = true`;
-8. alla fine aggiornare header, `record_count` e flags;
-9. fare `msync` della parte usata;
-10. `munmap` dell'intera mapping;
-11. troncare a:
+8. at the end, update the header, `record_count`, and flags;
+9. call `msync` on the used portion;
+10. call `munmap` on the entire mapping;
+11. truncate to:
 
 ```text
 64 + record_count * record_size
 ```
 
-12. chiudere il descrittore.
+12. close the descriptor.
 
-Non chiamare `ftruncate` verso il basso mentre la mapping e ancora usata.
+Do not shrink the file with `ftruncate` while the mapping is still in use.
 
-Se setup, scrittura, sync o finalizzazione falliscono, pulire tutte le risorse
-e restituire `WANG_SOLVE_ERROR`. Il risultato pubblico deve restare distrutto.
-Il file parziale puo rimanere come diagnostica, ma non deve essere presentato
-come trace completo.
+If setup, writing, synchronization, or finalization fails, clean up all
+resources and return `WANG_SOLVE_ERROR`. The public result must remain
+destroyed. The partial file may remain for diagnostics, but it must not be
+presented as a complete trace.
 
-### 14.4 Futuro multithread
+### 14.4 Future multithreading
 
-Non usare oggi lock o atomiche. In futuro non fare scrivere piu worker nella
-stessa mapping ridimensionabile: assegnare a ogni worker un segmento o file
-privato e unire gli indici dopo la ricerca. Questa nota non autorizza alcuna
-implementazione OpenMP in questo blocco.
+Do not use locks or atomics today. In the future, do not let multiple workers
+write to the same resizable mapping: assign a private segment or file to each
+worker and merge the indices after the search. This note does not authorize
+any OpenMP implementation in this block.
 
-## 15. Gestione degli errori e ownership
+## 15. Error handling and ownership
 
-Ogni allocazione deve avere un controllo di overflow precedente. Su qualsiasi
-errore:
+Every allocation must be preceded by an overflow check. On any error:
 
-- rollback/cleanup dello stato privato;
-- finalizzazione o chiusura sicura del writer se aperto;
-- `free` di domini, neighbor mask, trail, queue, snapshot e array temporanei;
-- output pubblico azzerato;
-- `WANG_SOLVE_ERROR`.
+- roll back and clean up the private state;
+- safely finalize or close the writer if it was opened;
+- `free` domains, neighbor mask, trail, queue, snapshot, and temporary arrays;
+- zero the public output;
+- return `WANG_SOLVE_ERROR`.
 
-Costruire il risultato in una variabile locale e trasferirlo in
-`out_result` soltanto al termine. Non pubblicare campi progressivamente.
+Construct the result in a local variable and transfer it to `out_result` only
+on completion. Do not publish fields progressively.
 
-Il solver deve rifiutare un `out_result` non distrutto per evitare leak o
-overwrite silenziosi.
+The solver must reject an undestroyed `out_result` to prevent leaks or silent
+overwrites.
 
-## 16. Test richiesti
+## 16. Required tests
 
-### 16.1 Verificatore
+### 16.1 Verifier
 
-Testare almeno:
+Test at least:
 
-- argomenti nulli e lunghezza errata;
-- `TILE_NONE` su cella attiva;
-- `TileId` fuori range;
-- tessera assegnata a cella inattiva;
-- singola cella con tutti i boundary corretti;
-- mismatch di bordo in ciascuna direzione;
-- due celle compatibili e incompatibili orizzontalmente;
-- due celle compatibili e incompatibili verticalmente;
-- regione con cella inattiva/buco;
-- `Region` corrotto manualmente: colore invalido o boundary su lato interno.
+- null arguments and incorrect length;
+- `TILE_NONE` on an active cell;
+- out-of-range `TileId`;
+- a tile assigned to an inactive cell;
+- a single cell with all correct boundaries;
+- a boundary mismatch in each direction;
+- two horizontally compatible and incompatible cells;
+- two vertically compatible and incompatible cells;
+- a region with an inactive cell/hole;
+- a manually corrupted `Region`: invalid color or boundary on an internal
+  edge.
 
 ### 16.2 Solver
 
-Testare almeno:
+Test at least:
 
-- opzioni e output invalidi;
-- regione vuota di celle attive -> `SAT`;
-- singola cella forzata -> `SAT`, dominio singleton corretto;
-- singola cella con boundary impossibile -> `UNSAT`, nessuno snapshot di
-  default e `conflict_cell` valido;
-- la stessa regione con `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` -> snapshot
-  presente, dominio del conflitto a zero e metadati coerenti;
-- piccole regioni SAT e UNSAT confrontate con un brute force indipendente nei
-  test;
-- risultato SAT sempre accettato da `wang_verify_tiling()`;
-- determinismo: due esecuzioni producono stesso status e stesso snapshot;
-- metriche tutte zero senza flag e coerenti con flag;
-- rollback dopo piu livelli, incluse modifiche multiple della stessa cella;
-- una regione non vincolata che superi diecimila livelli decisionali, per
-  esercitare lo stack DFS esplicito senza dipendere dallo stack del processo;
-- input e `Region` non modificati;
-- output distrutto dopo errore e destroy idempotente.
+- invalid options and output objects;
+- a region with no active cells -> `SAT`;
+- a single forced cell -> `SAT`, with the correct singleton domain;
+- a single cell with an impossible boundary -> `UNSAT`, no default snapshot,
+  and a valid `conflict_cell`;
+- the same region with `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` -> snapshot present,
+  zero conflict domain, and consistent metadata;
+- small SAT and UNSAT regions compared with an independent brute force in the
+  tests;
+- every SAT result accepted by `wang_verify_tiling()`;
+- determinism: two executions produce the same status and snapshot;
+- metrics all zero without the flag and consistent with the flag;
+- rollback after multiple levels, including multiple changes to the same cell;
+- an unconstrained region exceeding ten thousand decision levels, to exercise
+  the explicit DFS stack without depending on the process stack;
+- unmodified input and `Region`;
+- output left in a destroyed state after an error, and idempotent destruction.
 
-Il brute force di test deve enumerare direttamente i `TileId` su regioni molto
-piccole e usare il verificatore; non deve chiamare il solver o le sue cache.
+The brute-force test oracle must enumerate `TileId` values directly on very
+small regions and use the verifier; it must not call the solver or its caches.
 
-### 16.3 Trace mmap
+### 16.3 mmap trace
 
-Usare un path temporaneo posseduto dal test. Verificare:
+Use a temporary path owned by the test. Verify:
 
-- nessun file creato senza flag;
-- errore con path nullo/vuoto o capacita zero;
-- magic, versione, dimensioni e `record_size`;
-- almeno una leaf scritta per un caso UNSAT;
+- no file created without the flag;
+- error with a null/empty path or zero capacity;
+- magic, version, dimensions, and `record_size`;
+- at least one leaf written for an UNSAT case;
 - `record_count == out_result.traced_leaf_count`;
-- dimensione finale esatta:
+- exact final size:
 
 ```text
 64 + record_count * record_size
 ```
 
-- il dominio della `conflict_cell` nel record e zero;
-- cap raggiunto: ulteriori leaf non vengono scritte e
+- the domain of the record's `conflict_cell` is zero;
+- capacity reached: additional leaves are not written and
   `trace_truncated == true`;
-- file leggibile dopo `munmap`/close;
-- cleanup corretto su errore del writer.
+- file readable after `munmap`/close;
+- correct cleanup on a writer error.
 
-Non lasciare file temporanei dopo i test.
+Do not leave temporary files after the tests.
 
-### 16.4 Integrazione Yang-Zhang
+### 16.4 Yang-Zhang integration
 
-Dopo che i test piccoli sono stabili:
+After the small tests are stable:
 
-- costruire la formula minima `{0,0,0}` con `yang_zhang_build()` e confrontare
-  il risultato del solver con la semantica CM1-in-3 attesa (`UNSAT`);
-- provare l'istanza a tre variabili documentata nel builder, che ammette
-  l'assegnazione `(0,0,1)`, e richiedere un tiling `SAT` verificato;
-- conservare una regressione in cui l'unico segnale vero entra nella prima
-  riga di una clausola;
-- enumerare tutte le 1701 formule canoniche fino a tre variabili e confrontare
-  ogni risultato con l'oracolo Booleano;
-- se questi test risultano troppo costosi per `make check`, marcarli come
-  target di integrazione separato invece di indebolire i test unitari.
+- build the minimal `{0,0,0}` formula with `yang_zhang_build()` and compare the
+  solver result with the expected CM1-in-3 semantics (`UNSAT`);
+- try the three-variable instance documented in the builder, which admits the
+  assignment `(0,0,1)`, and require a verified `SAT` tiling;
+- retain a regression in which the only true signal enters the first row of a
+  clause;
+- enumerate all 1,701 canonical formulas with up to three variables and
+  compare every result with the Boolean oracle;
+- if these tests are too expensive for `make check`, mark them as a separate
+  integration target instead of weakening the unit tests.
 
-## 17. Controlli e profiling
+## 17. Checks and profiling
 
-Eseguire durante lo sviluppo:
+Run during development:
 
 ```sh
 make clean
@@ -776,54 +779,54 @@ make valgrind-check
 make cachegrind-check
 ```
 
-Se Valgrind non e installato, `make check` resta il gate obbligatorio.
+If Valgrind is not installed, `make check` remains the mandatory gate.
 
-Usare le metriche e Cachegrind per rispondere prima di ottimizzare:
+Use metrics and Cachegrind to answer these questions before optimizing:
 
-- quanta parte del lavoro e MRV scan;
-- quanti duplicati entrano nella queue;
-- quanto cresce il trail;
-- quante riduzioni produce ogni decisione;
-- quanto costa copiare ogni leaf nel trace.
+- how much of the work is the MRV scan;
+- how many duplicates enter the queue;
+- how large the trail grows;
+- how many reductions each decision produces;
+- how much copying each leaf into the trace costs.
 
-Ottimizzazioni ammesse solo dopo misura:
+Optimizations allowed only after measurement:
 
-- 24 bucket MRV;
-- bitset di celle per bucket;
-- deduplicazione della propagation queue;
-- trace per delta o decision path invece di snapshot completi.
+- 24 MRV buckets;
+- a bitset of cells for each bucket;
+- propagation-queue deduplication;
+- traces of deltas or decision paths instead of complete snapshots.
 
-Non introdurre skip list o memoization globale come prima ottimizzazione.
+Do not introduce skip lists or global memoization as the first optimization.
 
-## 18. Ordine di implementazione consigliato
+## 18. Recommended implementation order
 
-1. Implementare `verify.h`, `verify_tiling.c` e `test_verify.c`.
-2. Definire `solver.h` e testare lifetime/validazione del risultato.
-3. Implementare e verificare `edge_mask` e `compat` private.
-4. Inizializzare domini e neighbor mask dai boundary.
-5. Implementare trail, rollback e propagation queue.
-6. Implementare DFS/MRV con uno stack esplicito e senza trace.
-7. Verificare obbligatoriamente ogni risultato SAT.
-8. Implementare selezione e ritorno della migliore leaf UNSAT.
-9. Aggiungere metriche dietro flag.
-10. Implementare writer mmap e parser minimo del formato nei test.
-11. Aggiungere regressioni deterministiche e confronti brute force.
-12. Eseguire check, Valgrind e Cachegrind.
-13. Solo a lavoro completato aggiornare il README da "not implemented" a
-    stato realmente raggiunto.
+1. Implement `verify.h`, `verify_tiling.c`, and `test_verify.c`.
+2. Define `solver.h` and test result lifetime/validation.
+3. Implement and verify the private `edge_mask` and `compat` tables.
+4. Initialize domains and the neighbor mask from boundaries.
+5. Implement the trail, rollback, and propagation queue.
+6. Implement DFS/MRV with an explicit stack and no trace.
+7. Independently verify every SAT result.
+8. Implement selection and return of the best UNSAT leaf.
+9. Add metrics behind a flag.
+10. Implement the mmap writer and a minimal format parser in the tests.
+11. Add deterministic regressions and brute-force comparisons.
+12. Run checks, Valgrind, and Cachegrind.
+13. Only after completing the work, update the README from "not implemented"
+    to the status actually reached.
 
 ## 19. Definition of done
 
-Il blocco e completo quando:
+The work package is complete when:
 
-- verifier e solver hanno contratti pubblici documentati;
-- il solver restituisce `SAT`, `UNSAT` o `ERROR` senza ambiguita;
-- `SAT` contiene domini singleton e passa il verifier indipendente;
-- `UNSAT` contiene sempre una leaf fallita renderizzabile;
-- il trace mmap opzionale contiene record validi, rispetta il cap ed e
-  troncato alla dimensione effettiva;
-- metriche assenti/presenti rispettano il flag;
-- nessuna cache privata diventa una seconda sorgente di verita;
-- il solver resta indipendente dalla geometria e dai metadata del builder;
-- `make check` passa senza warning;
-- i test non perdono memoria e non lasciano file temporanei.
+- the verifier and solver have documented public contracts;
+- the solver returns `SAT`, `UNSAT`, or `ERROR` unambiguously;
+- `SAT` contains singleton domains and passes the independent verifier;
+- `UNSAT` always contains a renderable failed leaf;
+- the optional mmap trace contains valid records, respects the cap, and is
+  truncated to its actual size;
+- metrics remain zero or are populated according to the flag;
+- no private cache becomes a second source of truth;
+- the solver remains independent of builder geometry and metadata;
+- `make check` passes without warnings;
+- tests do not leak memory or leave temporary files.
