@@ -54,7 +54,7 @@ tileability.
 
 ## Current status
 
-Implemented and tested as of 15 August 2026:
+Implemented and tested as of 17 August 2026:
 
 - canonical static definition of the 23 atomic Wang tiles;
 - generalized-tile family metadata kept outside solver semantics;
@@ -75,8 +75,8 @@ Implemented and tested as of 15 August 2026:
 - deterministic native serial solver with private compatibility masks,
   bitmask domains, propagation, MRV search, an undo trail, and mandatory
   independent validation of every SAT witness;
-- optional solver metrics, a renderable best failed leaf for UNSAT, and a
-  capped binary failed-leaf trace backed by `mmap`;
+- optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
+  and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
   oracles, large-region stress cases, and end-to-end Yang-Zhang SAT/UNSAT
   checks;
@@ -109,8 +109,10 @@ The Wang Z3 module is a scaffold; the Boolean Z3 oracle is implemented.
 Development proceeds through small, testable modules:
 
 1. add the Python region boundary and Wang Z3 cross-checks;
-2. profile the serial baseline on larger reduction instances;
-3. introduce OpenMP from measured serial split points;
+2. establish the performance path with differential coverage and dynamic DFS
+   storage as its first isolated change;
+3. evaluate MRV indexing, propagation scheduling, and OpenMP independently
+   against the recorded reference baseline;
 4. implement and verify the square-to-hex translation;
 5. stabilize JSON and renderer integration last.
 
@@ -146,7 +148,13 @@ make sanitizer-check
 make analyzer-check
 make valgrind-check
 make cachegrind-check
+make benchmark
 ```
+
+`make benchmark` builds the portable `-O2` reference harness and runs the
+versioned generic and Yang-Zhang corpus in separate timing, single-solve RSS,
+and metrics passes. Its results are host-specific evidence, not CI pass/fail
+thresholds.
 
 ## Repository layout
 
@@ -163,6 +171,7 @@ python/native/   C ABI adapters and ownership boundaries
 python/oracles/  independent Z3 oracles and witness checks
 python/hex/      square-to-hex translation and verifier
 tests/           C, Python, and instance regressions
+benchmarks/      fixed reference corpus and profiling runner
 docs/            theory and architecture references
 legacy/          frozen experimental code
 ```
@@ -188,8 +197,15 @@ reduction.
   boundary-color template.
 - [`docs/serial_solver_implementation_guide.md`](docs/serial_solver_implementation_guide.md)
   records the implemented contract for the independent verifier,
-  deterministic serial solver, optional metrics, UNSAT diagnostic snapshot,
-  and mmap leaf trace.
+  deterministic serial solver, optional metrics, opt-in UNSAT diagnostic
+  snapshot, and mmap leaf trace.
+- [`docs/solver_performance_scope.md`](docs/solver_performance_scope.md)
+  records the accepted guardrails for profiling and for a reference path plus
+  an OpenMP-capable performance path within the same generic Wang solver. It
+  distinguishes target decisions from behavior already implemented.
+- [`docs/solver_reference_profile_2026-08-17.md`](docs/solver_reference_profile_2026-08-17.md)
+  records the first reproducible `-O2` reference baseline, corpus, metrics,
+  Callgrind attribution, limitations, and evidence-gated optimization order.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

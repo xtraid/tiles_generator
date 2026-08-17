@@ -138,10 +138,32 @@ static void test_impossible_boundary_unsat_with_metrics(void)
     assert(region_set_boundary(&region, 0, 0, N, COLOR_V));
 
     assert(wang_solve_serial(&region, &options, &result) == WANG_SOLVE_UNSAT);
-    assert(result.domain_count == 1);
-    assert(result.domains[0] == 0);
+    assert(result.domain_count == 0);
+    assert(result.domains == NULL);
     assert(result.conflict_cell == 0);
     assert(result.metrics.failed_leaves == 1);
+
+    wang_solve_result_destroy(&result);
+    region_destroy(&region);
+}
+
+static void test_unsat_snapshot_is_opt_in(void)
+{
+    Region region = {0};
+    WangSolveResult result = {0};
+    const WangSolverOptions options = {
+        .flags = WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT,
+    };
+
+    assert(region_init(&region, 1, 1));
+    activate_all(&region);
+    assert(region_set_boundary(&region, 0, 0, N, COLOR_V));
+
+    assert(wang_solve_serial(&region, &options, &result) == WANG_SOLVE_UNSAT);
+    assert(result.domain_count == 1);
+    assert(result.domains != NULL);
+    assert(result.domains[0] == 0);
+    assert(result.conflict_cell == 0);
 
     wang_solve_result_destroy(&result);
     region_destroy(&region);
@@ -217,8 +239,10 @@ static void test_small_regions_against_brute_force(void)
             if (status == WANG_SOLVE_SAT) {
                 assert_sat_snapshot(&region, &result);
             } else {
-                assert(result.conflict_cell < result.domain_count);
-                assert(result.domains[result.conflict_cell] == 0);
+                assert(result.domains == NULL);
+                assert(result.domain_count == 0);
+                assert(result.conflict_cell < region.cell_count);
+                assert(region.cells[result.conflict_cell].active);
             }
 
             wang_solve_result_destroy(&result);
@@ -306,6 +330,8 @@ static void test_mmap_trace_for_root_conflict(void)
     assert(region_set_boundary(&region, 0, 0, N, COLOR_V));
 
     assert(wang_solve_serial(&region, &options, &result) == WANG_SOLVE_UNSAT);
+    assert(result.domains == NULL);
+    assert(result.domain_count == 0);
     assert(result.traced_leaf_count == 1);
     assert(!result.trace_truncated);
 
@@ -416,6 +442,7 @@ int main(void)
     test_empty_active_mask_is_sat();
     test_forced_single_cell_sat();
     test_impossible_boundary_unsat_with_metrics();
+    test_unsat_snapshot_is_opt_in();
     test_deterministic_unconstrained_region();
     test_small_regions_against_brute_force();
     test_mmap_trace_for_root_conflict();

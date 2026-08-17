@@ -51,9 +51,10 @@ typedef struct {
     size_t best_resolved_count;
     size_t best_depth;
     size_t best_conflict_cell;
-    bool has_best_snapshot;
+    bool has_best_leaf;
 
     bool collect_metrics;
+    bool capture_unsat_snapshot;
     WangSolverMetrics metrics;
     FailedLeafWriter writer;
 } SolverState;
@@ -238,6 +239,25 @@ static bool ensure_queue_capacity(SolverState *state, size_t needed)
     state->queue = resized;
     state->queue_capacity = capacity;
     return true;
+}
+
+static bool ensure_best_snapshot(SolverState *state)
+{
+    if (state->best_snapshot != NULL) {
+        return true;
+    }
+
+    size_t bytes;
+    if (!checked_mul_size(
+            state->cell_count,
+            sizeof(*state->best_snapshot),
+            &bytes
+        )) {
+        return false;
+    }
+
+    state->best_snapshot = malloc(bytes);
+    return state->best_snapshot != NULL;
 }
 
 static bool queue_push(SolverState *state, size_t cell_index)
@@ -443,21 +463,26 @@ static bool record_failed_leaf(
         ++state->metrics.failed_leaves;
     }
 
-    const bool better = !state->has_best_snapshot ||
+    const bool better = !state->has_best_leaf ||
         state->resolved_count > state->best_resolved_count ||
         (state->resolved_count == state->best_resolved_count &&
          depth > state->best_depth);
 
     if (better) {
-        memcpy(
-            state->best_snapshot,
-            state->domains,
-            state->cell_count * sizeof(*state->domains)
-        );
+        if (state->capture_unsat_snapshot) {
+            if (!ensure_best_snapshot(state)) {
+                return false;
+            }
+            memcpy(
+                state->best_snapshot,
+                state->domains,
+                state->cell_count * sizeof(*state->domains)
+            );
+        }
         state->best_resolved_count = state->resolved_count;
         state->best_depth = depth;
         state->best_conflict_cell = conflict_cell;
-        state->has_best_snapshot = true;
+        state->has_best_leaf = true;
     }
 
     return failed_leaf_writer_write(
@@ -649,9 +674,7 @@ static bool allocate_solver_arrays(SolverState *state)
 
     state->domains = malloc(domain_bytes);
     state->neighbor_mask = malloc(neighbor_bytes);
-    state->best_snapshot = malloc(domain_bytes);
-    if (state->domains == NULL || state->neighbor_mask == NULL ||
-        state->best_snapshot == NULL) {
+    if (state->domains == NULL || state->neighbor_mask == NULL) {
         return false;
     }
     return true;
@@ -764,7 +787,8 @@ static bool solver_options_are_valid(const WangSolverOptions *options)
 
     const uint32_t known_flags =
         WANG_SOLVE_COLLECT_METRICS |
-        WANG_SOLVE_TRACE_FAILED_LEAVES;
+        WANG_SOLVE_TRACE_FAILED_LEAVES |
+        WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT;
     if ((options->flags & ~known_flags) != 0) {
         return false;
     }
@@ -811,6 +835,8 @@ WangSolveStatus wang_solve_serial(
     state.cell_count = cell_count;
     state.collect_metrics = options != NULL &&
         (options->flags & WANG_SOLVE_COLLECT_METRICS) != 0;
+    state.capture_unsat_snapshot = options != NULL &&
+        (options->flags & WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT) != 0;
     build_solver_tables(&state.tables);
     if (!solver_tables_are_valid(&state.tables)) {
         return WANG_SOLVE_ERROR;
@@ -872,11 +898,15 @@ WangSolveStatus wang_solve_serial(
     if (status == WANG_SOLVE_SAT && !verify_sat_domains(&state)) {
         status = WANG_SOLVE_ERROR;
     }
-    if (status == WANG_SOLVE_UNSAT && !state.has_best_snapshot) {
+    if (status == WANG_SOLVE_UNSAT && !state.has_best_leaf) {
         status = WANG_SOLVE_ERROR;
     }
 
     if (status == WANG_SOLVE_SAT) {
+        if (!ensure_best_snapshot(&state)) {
+            solver_state_destroy(&state);
+            return WANG_SOLVE_ERROR;
+        }
         memcpy(
             state.best_snapshot,
             state.domains,
@@ -884,7 +914,7 @@ WangSolveStatus wang_solve_serial(
         );
         state.best_resolved_count = state.resolved_count;
         state.best_conflict_cell = SIZE_MAX;
-        state.has_best_snapshot = true;
+        state.has_best_leaf = true;
     }
 
     const size_t traced_leaf_count = state.writer.count;
@@ -898,9 +928,11 @@ WangSolveStatus wang_solve_serial(
         return WANG_SOLVE_ERROR;
     }
 
+    const bool return_domains = status == WANG_SOLVE_SAT ||
+        state.capture_unsat_snapshot;
     WangSolveResult result = {
-        .domains = state.best_snapshot,
-        .domain_count = state.cell_count,
+        .domains = return_domains ? state.best_snapshot : NULL,
+        .domain_count = return_domains ? state.cell_count : 0,
         .conflict_cell = status == WANG_SOLVE_SAT
             ? SIZE_MAX
             : state.best_conflict_cell,
@@ -913,7 +945,9 @@ WangSolveStatus wang_solve_serial(
             : (WangSolverMetrics){0},
     };
 
-    state.best_snapshot = NULL;
+    if (return_domains) {
+        state.best_snapshot = NULL;
+    }
     solver_state_destroy(&state);
     *out_result = result;
     return status;

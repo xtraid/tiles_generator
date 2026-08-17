@@ -174,9 +174,10 @@ static void test_deterministic_fuzz_against_oracle(void)
         if (status == WANG_SOLVE_SAT) {
             assert_sat_result(&region, &result);
         } else {
-            assert(result.conflict_cell < result.domain_count);
+            assert(result.domains == NULL);
+            assert(result.domain_count == 0);
+            assert(result.conflict_cell < region.cell_count);
             assert(region.cells[result.conflict_cell].active);
-            assert(result.domains[result.conflict_cell] == 0);
         }
 
         free(original);

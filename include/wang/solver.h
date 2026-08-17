@@ -15,7 +15,8 @@ typedef enum {
 
 enum {
     WANG_SOLVE_COLLECT_METRICS = UINT32_C(1) << 0,
-    WANG_SOLVE_TRACE_FAILED_LEAVES = UINT32_C(1) << 1
+    WANG_SOLVE_TRACE_FAILED_LEAVES = UINT32_C(1) << 1,
+    WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT = UINT32_C(1) << 2
 };
 
 typedef struct {
@@ -45,8 +46,10 @@ typedef struct {
 typedef struct {
     /*
      * Dense row-major domain snapshot, one uint32_t per RegionCell.
-     * SAT contains singleton domains for every active cell. UNSAT contains
-     * the best failed leaf found by the deterministic search.
+     * SAT always contains singleton domains for every active cell. UNSAT
+     * contains the best failed leaf only when
+     * WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT was requested; otherwise domains is
+     * NULL and domain_count is zero.
      */
     uint32_t *domains;
     size_t domain_count;
@@ -67,8 +70,9 @@ typedef struct {
  * Solve a finite Wang region using the canonical TILESET.
  *
  * options may be NULL. out_result must be zero-initialized or destroyed.
- * On SAT or UNSAT, the caller owns out_result->domains. On ERROR, out_result
- * remains destroyed.
+ * On SAT, and on UNSAT when snapshot capture was requested, the caller owns
+ * out_result->domains. On UNSAT without capture, domains is NULL. On ERROR,
+ * out_result remains destroyed.
  */
 WangSolveStatus wang_solve_serial(
     const Region *region,

@@ -83,8 +83,10 @@ static void assert_reduction_matches_boolean_oracle(Cm13Formula *formula)
         ) == WANG_VERIFY_VALID);
         free(tiles);
     } else {
-        assert(result.conflict_cell < result.domain_count);
-        assert(result.domains[result.conflict_cell] == 0);
+        assert(result.domains == NULL);
+        assert(result.domain_count == 0);
+        assert(result.conflict_cell < reduction.region.cell_count);
+        assert(reduction.region.cells[result.conflict_cell].active);
     }
 
     wang_solve_result_destroy(&result);

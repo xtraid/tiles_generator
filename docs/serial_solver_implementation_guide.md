@@ -1,6 +1,6 @@
 # Guida tecnica: verificatore, solver seriale e trace delle leaf
 
-Implementation status as of 11 August 2026: this guide has been implemented.
+Implementation status as of 17 August 2026: this guide has been implemented.
 The public headers and tests are authoritative where they differ from an
 earlier prospective detail below. The document remains the technical contract
 and maintenance handoff for the module.
@@ -16,7 +16,8 @@ Il lavoro comprende:
 2. un solver seriale deterministico basato su domini a bitmask;
 3. propagazione locale, MRV e rollback tramite undo trail;
 4. metriche opzionali;
-5. uno snapshot renderizzabile restituito sia per `SAT` sia per `UNSAT`;
+5. uno snapshot renderizzabile sempre restituito per `SAT` e disponibile per
+   `UNSAT` soltanto tramite flag diagnostico esplicito;
 6. un trace binario opzionale di tutte le leaf fallite, scritto tramite
    `mmap` in un file di capacita massima nota e troncato alla dimensione
    effettiva al termine.
@@ -174,7 +175,8 @@ typedef enum {
 
 enum {
     WANG_SOLVE_COLLECT_METRICS = UINT32_C(1) << 0,
-    WANG_SOLVE_TRACE_FAILED_LEAVES = UINT32_C(1) << 1
+    WANG_SOLVE_TRACE_FAILED_LEAVES = UINT32_C(1) << 1,
+    WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT = UINT32_C(1) << 2
 };
 
 typedef struct {
@@ -202,7 +204,8 @@ typedef struct {
     /*
      * Snapshot denso row-major, uno uint32_t per RegionCell.
      * SAT: tutti i domini attivi sono singleton.
-     * UNSAT: migliore leaf fallita secondo la regola in Sezione 10.
+     * UNSAT con WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT: migliore leaf fallita
+     * secondo la regola in Sezione 10. Senza flag: NULL e count zero.
      */
     uint32_t *domains;
     size_t domain_count;
@@ -287,9 +290,10 @@ typedef struct {
     size_t best_resolved_count;
     size_t best_depth;
     size_t best_conflict_cell;
-    bool has_best_snapshot;
+    bool has_best_leaf;
 
     bool collect_metrics;
+    bool capture_unsat_snapshot;
     WangSolverMetrics metrics;
 
     /* writer mmap privato, se abilitato */
@@ -416,15 +420,18 @@ Se il dominio cambia, salvarlo nel trail e accodare `j`. Se diventa zero,
 conservare lo zero nello stato, registrare la leaf prima del rollback e
 segnalare conflitto.
 
-Il solver deve mantenere sempre in RAM la leaf migliore, anche quando il trace
-su file e disabilitato. Ordine deterministico di preferenza:
+Il solver deve mantenere sempre i metadati della leaf migliore, anche quando il
+trace su file e lo snapshot denso sono disabilitati. Ordine deterministico di
+preferenza:
 
 1. maggior `resolved_count`;
 2. a parita, maggiore profondita decisionale;
 3. a ulteriore parita, mantenere la prima incontrata.
 
-Per una leaf migliore copiare l'intero array in `best_snapshot` e salvare
-`conflict_cell`, profondita e numero di celle risolte.
+Salvare sempre `conflict_cell`, profondita e numero di celle risolte. Soltanto
+con `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT`, allocare `best_snapshot` alla prima
+leaf migliore e copiarvi l'intero array dei domini. Il trace mmap e la cattura
+dello snapshot restano opzioni indipendenti.
 
 Questo snapshot UNSAT e diagnostico/renderizzabile, non e una prova formale di
 insoddisfacibilita.
@@ -686,8 +693,10 @@ Testare almeno:
 - opzioni e output invalidi;
 - regione vuota di celle attive -> `SAT`;
 - singola cella forzata -> `SAT`, dominio singleton corretto;
-- singola cella con boundary impossibile -> `UNSAT`, snapshot presente e
-  `conflict_cell` valido;
+- singola cella con boundary impossibile -> `UNSAT`, nessuno snapshot di
+  default e `conflict_cell` valido;
+- la stessa regione con `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` -> snapshot
+  presente, dominio del conflitto a zero e metadati coerenti;
 - piccole regioni SAT e UNSAT confrontate con un brute force indipendente nei
   test;
 - risultato SAT sempre accettato da `wang_verify_tiling()`;

@@ -49,13 +49,17 @@ C_TEST_BINS := $(patsubst tests/c/%.c,$(BUILD_DIR)/tests/c/%,$(C_TEST_SOURCES))
 C_TEST_DEPS := $(addsuffix .d,$(C_TEST_BINS))
 PYTHON_TESTS := $(shell find tests/python -type f -name 'test_*.py' -print)
 
+BENCHMARK_SOURCE := benchmarks/c/bench_solver.c
+BENCHMARK_BIN := $(BUILD_DIR)/benchmarks/c/bench_solver
+BENCHMARK_DEP := $(BENCHMARK_BIN).d
+
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 SHARED_LIBRARY := $(LIB_DIR)/libwang.so
 OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
 .PHONY: all setup serial shared openmp check c-check python-check \
 	strict-check sanitizer-check analyzer-check valgrind-check \
-	cachegrind-check clean
+	cachegrind-check benchmark benchmark-smoke clean
 
 all: serial shared
 
@@ -96,7 +100,18 @@ $(BUILD_DIR)/tests/c/%: tests/c/%.c $(SERIAL_LIBRARY)
 	@mkdir -p $(@D)
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) $< $(SERIAL_LIBRARY) -o $@
 
-check: c-check openmp python-check
+$(BENCHMARK_BIN): $(BENCHMARK_SOURCE) $(SERIAL_LIBRARY)
+	@mkdir -p $(@D)
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPFLAGS) $< $(SERIAL_LIBRARY) -o $@
+
+benchmark: $(BENCHMARK_BIN)
+	sh benchmarks/run_reference_profile.sh $(BENCHMARK_BIN)
+
+benchmark-smoke: $(BENCHMARK_BIN)
+	$(BENCHMARK_BIN) \
+		--case generic_backtracking_sat --iterations 1 --metrics
+
+check: c-check openmp python-check benchmark-smoke
 
 c-check: serial $(C_TEST_BINS)
 	@set -e; \
@@ -111,20 +126,22 @@ c-check: serial $(C_TEST_BINS)
 
 strict-check:
 	$(MAKE) clean
-	$(MAKE) c-check shared openmp CFLAGS="$(STRICT_CFLAGS)"
+	$(MAKE) c-check shared openmp benchmark-smoke CFLAGS="$(STRICT_CFLAGS)"
 
 sanitizer-check:
 	$(MAKE) clean
 	ASAN_OPTIONS="$(ASAN_OPTIONS)" UBSAN_OPTIONS="$(UBSAN_OPTIONS)" \
-		$(MAKE) c-check openmp CFLAGS="$(SANITIZER_CFLAGS)"
+		$(MAKE) c-check openmp benchmark-smoke \
+		CFLAGS="$(SANITIZER_CFLAGS)"
 
 analyzer-check:
 	$(MAKE) clean
-	$(MAKE) serial shared openmp CFLAGS="$(ANALYZER_CFLAGS)"
+	$(MAKE) serial shared openmp $(BENCHMARK_BIN) \
+		CFLAGS="$(ANALYZER_CFLAGS)"
 
 valgrind-check:
 	$(MAKE) clean
-	$(MAKE) serial openmp $(C_TEST_BINS)
+	$(MAKE) serial openmp $(C_TEST_BINS) $(BENCHMARK_BIN)
 	@set -e; \
 	for test in $(C_TEST_BINS); do \
 		echo "Running $$test under Valgrind"; \
@@ -135,10 +152,17 @@ valgrind-check:
 			--errors-for-leak-kinds=all \
 			$$test; \
 	done
+	$(VALGRIND) \
+		--error-exitcode=1 \
+		--leak-check=full \
+		--show-leak-kinds=all \
+		--errors-for-leak-kinds=all \
+		$(BENCHMARK_BIN) \
+		--case generic_backtracking_sat --iterations 1 --metrics
 
 cachegrind-check:
 	$(MAKE) clean
-	$(MAKE) serial openmp $(C_TEST_BINS)
+	$(MAKE) serial openmp $(C_TEST_BINS) $(BENCHMARK_BIN)
 	@mkdir -p $(BUILD_DIR)/cachegrind
 	@set -e; \
 	for test in $(C_TEST_BINS); do \
@@ -151,6 +175,13 @@ cachegrind-check:
 			--cachegrind-out-file=$(BUILD_DIR)/cachegrind/$$name.out \
 			$$test; \
 	done
+	$(VALGRIND) \
+		--tool=cachegrind \
+		--cache-sim=yes \
+		--error-exitcode=1 \
+		--cachegrind-out-file=$(BUILD_DIR)/cachegrind/benchmark-smoke.out \
+		$(BENCHMARK_BIN) \
+		--case generic_backtracking_sat --iterations 1 --metrics
 
 python-check: shared
 ifneq ($(strip $(PYTHON_TESTS)),)
@@ -164,4 +195,5 @@ endif
 clean:
 	$(RM) -r $(BUILD_DIR)
 
--include $(SERIAL_DEPS) $(PIC_DEPS) $(OPENMP_DEP) $(C_TEST_DEPS)
+-include $(SERIAL_DEPS) $(PIC_DEPS) $(OPENMP_DEP) $(C_TEST_DEPS) \
+	$(BENCHMARK_DEP)
