@@ -1,12 +1,75 @@
-# Hexagonal Wang Tiles
+# Tiling Foundry
 
-Research and implementation project on finite Wang tiling, centered on the
-fixed 23-tile NP-completeness construction of Yang–Zhang and on a verified
-translation from square Wang tilings to a hexagonal representation.
+[![CI](https://github.com/xtraid/tiling-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/xtraid/tiling-foundry/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Can a fixed set of just 23 Wang tiles encode an NP-complete problem? Tiling
+Foundry turns the Yang–Zhang construction into an inspectable, tested software
+pipeline: a formula becomes a finite simply connected region, a native C solver
+tiles it, and an independent verifier checks the witness.
+
+This is a research implementation, not a general-purpose tiling library. Its
+main concern is keeping the mathematical reduction, the search procedure, and
+the correctness checks separate enough to audit and measure.
 
 The project is being rebuilt from the theory outward. The previous experimental
 codebase remains under `legacy/`, but it is not the implementation base of the
 new core.
+
+## Why this repository exists
+
+The 2024 Yang–Zhang result proves NP-completeness for tiling finite simply
+connected regions using one fixed set of 23 Wang tiles. The proof is compact;
+turning it into software exposes engineering questions that are easy to hide in
+an all-in-one prototype:
+
+- Which representation is authoritative at each stage?
+- How do we test the reduction independently from the solver?
+- Can solver optimizations be isolated and measured without changing semantics?
+- What evidence is enough before adding parallelism?
+
+Tiling Foundry answers those questions with small ownership boundaries,
+differential tests, reproducible benchmark cases, and a deliberately retained
+reference solver path.
+
+## Quick start
+
+Requirements are a C17 compiler, `make`, OpenMP support, and
+[`uv`](https://docs.astral.sh/uv/). Then:
+
+```sh
+git clone https://github.com/xtraid/tiling-foundry.git
+cd tiling-foundry
+make check
+```
+
+`make check` builds the serial and shared libraries, runs the C and Python test
+suites, builds the OpenMP scaffold, and exercises both solver paths on a small
+benchmark case. It does not require a GPU.
+
+## What is interesting today
+
+The optimized solver still uses the same Wang semantics and independent witness
+verification as the reference path. It currently differs in only two isolated
+mechanisms: a geometrically growing DFS stack and omission of undo entries
+during initial propagation, before rollback can be requested.
+
+On the versioned 12-variable Yang–Zhang SAT benchmark, five alternating runs on
+a Ryzen 5 3600 measured:
+
+| Metric | Reference | Optimized | Change |
+| --- | ---: | ---: | ---: |
+| Solver median | 80.033 ms | 73.150 ms | -8.60% |
+| Peak resident set | 14,952 KiB | 7,964 KiB | -6,988 KiB |
+| Reserved DFS stack | 1,829,928 bytes | 384 bytes | -99.98% |
+| Reserved undo trail | 8 MiB | 1 MiB | -87.5% |
+| Initial undo writes | 510,665 | 0 | -100% |
+
+These are host-specific measurements, not universal performance claims. The
+full corpus, commands, environment, raw interpretation rules, counterexamples,
+and mechanism-by-mechanism reports are versioned under [`benchmarks/`](benchmarks/)
+and [`docs/`](docs/). In particular, the unconstrained deep-search case keeps
+its required 2 MiB search trail and showed no material timing change (-0.40%).
 
 ## Goal
 
@@ -239,8 +302,9 @@ specification, proof artifact, or dependency of the new implementation.
 
 ## Primary reference
 
-Chao Yang and Zhujun Zhang, *NP-completeness of Tiling Finite Simply Connected
-Regions with a Fixed Set of Wang Tiles*, arXiv:2405.01017 (2024).
+[Chao Yang and Zhujun Zhang, *NP-completeness of Tiling Finite Simply Connected
+Regions with a Fixed Set of Wang Tiles*](https://arxiv.org/abs/2405.01017),
+arXiv:2405.01017 (2024).
 
 See the architecture specification for the extended bibliography and future
 research directions.
