@@ -2,7 +2,7 @@ import { GrowthFrontier, ORTHOGONAL_DIRECTIONS, cellKey } from "./growth-frontie
 import { Random, hashString } from "./random.js";
 import { crossStrategy, driftStrategy, mergeStrategy } from "./strategies.js";
 
-const MAX_PLAN_TILES = 1800;
+const MAX_PLAN_TILES = 2400;
 
 function claimSequence(cluster, edgeField) {
   const cells = cluster.frontier.sequence.map((placement) => Object.freeze({

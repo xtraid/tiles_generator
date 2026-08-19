@@ -108,12 +108,12 @@ function eventKind(random, lightMode, narrowViewport) {
 
 function activityCount({ root, landmarks, lightMode, narrowViewport }) {
   const blockCount = root.querySelectorAll("h2, h3, pre, figure, blockquote").length;
-  const heightTerm = Math.max(root.scrollHeight, window.innerHeight) / 1450;
+  const heightTerm = Math.max(root.scrollHeight, window.innerHeight) / 980;
   const structureTerm = Math.sqrt(landmarks.length + blockCount * 0.35) * 0.62;
-  const raw = Math.round(0.6 + heightTerm + structureTerm);
+  const raw = Math.round(1.1 + heightTerm + structureTerm);
 
-  if (lightMode) return clamp(raw, 1, 4);
-  return clamp(raw, 2, narrowViewport ? 8 : 12);
+  if (lightMode) return clamp(raw, 2, 5);
+  return clamp(raw, 3, narrowViewport ? 10 : 16);
 }
 
 export function planSectionEvents({ root, identity, tileSize, contentRect, lightMode = false }) {
@@ -127,7 +127,7 @@ export function planSectionEvents({ root, identity, tileSize, contentRect, light
   const landmarks = collectLandmarks(root);
   const count = activityCount({ root, landmarks, lightMode, narrowViewport });
   const anchors = chooseAnchors({ root, landmarks, count, random });
-  const scale = (lightMode ? 0.62 : 1) * (narrowViewport ? 0.58 : 1);
+  const scale = (lightMode ? 0.75 : 1) * (narrowViewport ? 0.68 : 1);
 
   const descriptors = anchors.map((anchorY, index) => {
     const kind = eventKind(random, lightMode, narrowViewport);
@@ -137,8 +137,8 @@ export function planSectionEvents({ root, identity, tileSize, contentRect, light
       id: `event-${index}`,
       kind,
       anchorY,
-      growthDistance: random.integer(300, 500),
-      opacity: lightMode ? 0.62 : 0.78,
+      growthDistance: random.integer(220, 340),
+      opacity: lightMode ? 0.72 : 0.88,
     };
 
     if (kind === "MERGE") {
@@ -147,8 +147,8 @@ export function planSectionEvents({ root, identity, tileSize, contentRect, light
         ...common,
         ...geometry,
         tileBudgets: [
-          Math.max(22, Math.round(random.integer(48, 76) * scale)),
-          Math.max(22, Math.round(random.integer(48, 76) * scale)),
+          Math.max(28, Math.round(random.integer(54, 88) * scale)),
+          Math.max(28, Math.round(random.integer(54, 88) * scale)),
         ],
       };
     }
@@ -159,7 +159,7 @@ export function planSectionEvents({ root, identity, tileSize, contentRect, light
         ...common,
         seeds: [seed],
         target: oppositeTarget(side, seedY, widthInCells, random),
-        tileBudget: Math.max(42, Math.round(random.integer(112, 166) * scale)),
+        tileBudget: Math.max(50, Math.round(random.integer(135, 205) * scale)),
       };
     }
 
@@ -174,7 +174,7 @@ export function planSectionEvents({ root, identity, tileSize, contentRect, light
       ...common,
       seeds: [seed],
       direction: random.pick(directions),
-      tileBudget: Math.max(28, Math.round(random.integer(58, 98) * scale)),
+      tileBudget: Math.max(34, Math.round(random.integer(74, 125) * scale)),
     };
   });
 

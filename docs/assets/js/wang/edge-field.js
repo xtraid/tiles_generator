@@ -1,12 +1,12 @@
 import { coordinateHash, hashString } from "./random.js";
 
 export const EDGE_PALETTE = Object.freeze([
-  "#b65b50",
-  "#4e788a",
-  "#70855b",
-  "#b69450",
-  "#7b6384",
-  "#8a6c59",
+  "#f05d4f",
+  "#3f9ec9",
+  "#78b84f",
+  "#e3b63f",
+  "#a979c9",
+  "#d9823f",
 ]);
 
 /**

@@ -8,8 +8,8 @@
   --faint: #555c5f;
   --rule: #25292b;
   --rule-strong: #3a4043;
-  --accent: #b69450;
-  --accent-cool: #6f98a7;
+  --accent: #e3b63f;
+  --accent-cool: #72b7d2;
   --content-width: 44rem;
   --reading-width: 42rem;
   --gutter: clamp(1.25rem, 4vw, 3rem);
@@ -60,7 +60,7 @@ button:focus-visible {
 }
 
 ::selection {
-  background: #b69450;
+  background: #e3b63f;
   color: #070809;
 }
 

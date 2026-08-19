@@ -74,7 +74,7 @@ export class TileRenderer {
     this.width = 0;
     this.height = 0;
     this.pixelRatio = 1;
-    this.tileSize = 14;
+    this.tileSize = 18;
     this.contentRect = null;
   }
 
@@ -122,12 +122,12 @@ export class TileRenderer {
     }
 
     const center = x + this.tileSize / 2;
-    const softMargin = 88;
+    const softMargin = 72;
     const leftDistance = this.contentRect.left - center;
     const rightDistance = center - this.contentRect.right;
 
     if (leftDistance <= 0 && rightDistance <= 0) {
-      return baseOpacity * 0.07;
+      return baseOpacity * 0.1;
     }
 
     const distance = Math.max(leftDistance, rightDistance);
@@ -136,7 +136,7 @@ export class TileRenderer {
     }
 
     const mix = clamp(distance / softMargin, 0, 1);
-    return baseOpacity * (0.07 + mix * 0.93);
+    return baseOpacity * (0.1 + mix * 0.9);
   }
 
   draw(tile, documentX, viewportY, opacity) {

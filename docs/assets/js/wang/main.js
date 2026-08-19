@@ -36,7 +36,7 @@ if (canvas && root && contentColumn) {
 
   function rebuild() {
     const lightMode = document.body.dataset.pageKind === "home";
-    const tileSize = window.innerWidth < 720 ? 12 : 14;
+    const tileSize = window.innerWidth < 720 ? 15 : 18;
     const contentRect = contentColumn.getBoundingClientRect();
 
     renderer.configure({
