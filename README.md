@@ -255,6 +255,9 @@ reduction.
 
 ## Documentation
 
+- [GitHub Pages — project site & research notes](https://xtraid.github.io/tiling-foundry/)
+
+
 - [`docs/development_principles.md`](docs/development_principles.md) records the
   practical rules used to keep module ownership clear and avoid premature
   abstractions as the implementation grows.
