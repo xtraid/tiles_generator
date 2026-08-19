@@ -1,3 +1,10 @@
+---
+layout: page
+title: "Technical guide: verifier, serial solver, and leaf trace"
+permalink: /serial_solver_implementation_guide/
+description: An implementation guide to verification, serial Wang search, diagnostics, and leaf tracing.
+---
+
 # Technical guide: verifier, serial solver, and leaf trace
 
 Implementation status as of 17 August 2026: this guide has been implemented.

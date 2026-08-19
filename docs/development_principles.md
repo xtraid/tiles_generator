@@ -1,3 +1,10 @@
+---
+layout: page
+title: Development principles
+permalink: /development_principles/
+description: Implementation boundaries and engineering rules for Tiling Foundry.
+---
+
 # Development principles
 
 This document guides implementation choices as the project grows. It is not a

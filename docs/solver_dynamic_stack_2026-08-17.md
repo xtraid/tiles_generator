@@ -1,3 +1,10 @@
+---
+layout: page
+title: Optimized solver dynamic DFS stack
+permalink: /solver_dynamic_stack_2026-08-17/
+description: Evidence for the optimized solver's geometrically growing DFS stack.
+---
+
 # Optimized solver dynamic DFS stack — 17 August 2026
 
 Status: accepted first isolated performance-path mechanism.

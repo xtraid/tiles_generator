@@ -1,3 +1,10 @@
+---
+layout: page
+title: Solver performance scope
+permalink: /solver_performance_scope/
+description: Accepted boundaries, metrics, and gates for serial Wang-solver optimization.
+---
+
 # Solver performance scope
 
 Status: accepted design direction, 17 August 2026.

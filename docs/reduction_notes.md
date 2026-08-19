@@ -1,3 +1,10 @@
+---
+layout: page
+title: Yang-Zhang reduction implementation notes
+permalink: /reduction_notes/
+description: Implementation notes for the finite Wang-region reduction.
+---
+
 # Yang-Zhang reduction implementation notes
 
 ## Document role

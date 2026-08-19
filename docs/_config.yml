@@ -1,0 +1,31 @@
+title: Tiling Foundry
+description: >-
+  An inspectable software laboratory for finite Wang tilings, the Yang-Zhang
+  reduction, and measured solver design.
+lang: en
+timezone: Europe/Rome
+
+url: "https://xtraid.github.io"
+baseurl: "/tiling-foundry"
+repository_url: "https://github.com/xtraid/tiling-foundry"
+
+markdown: kramdown
+highlighter: rouge
+theme: null
+permalink: /notes/:title/
+future: false
+strict_front_matter: true
+
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+
+exclude:
+  - post-template.md

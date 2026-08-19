@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 360" role="img" aria-labelledby="title description">
+  <title id="title">Wang tile edge convention</title>
+  <desc id="description">A square split into north, east, south, and west triangles meeting at the center.</desc>
+  <rect width="720" height="360" fill="#090a0b"/>
+  <g transform="translate(250 70)">
+    <path d="M0 0H220L110 110Z" fill="#b65b50"/>
+    <path d="M220 0V220L110 110Z" fill="#4e788a"/>
+    <path d="M220 220H0L110 110Z" fill="#70855b"/>
+    <path d="M0 220V0L110 110Z" fill="#b69450"/>
+  </g>
+  <g fill="#d8dbdc" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="18" letter-spacing="2">
+    <text x="360" y="42" text-anchor="middle">NORTH</text>
+    <text x="515" y="185">EAST</text>
+    <text x="360" y="326" text-anchor="middle">SOUTH</text>
+    <text x="205" y="185" text-anchor="end">WEST</text>
+  </g>
+</svg>

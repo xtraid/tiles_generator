@@ -1,0 +1,13 @@
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="site-brand" href="{{ '/' | relative_url }}" aria-label="Tiling Foundry home">
+      {% include tile-mark.html %}
+      <span>Tiling Foundry</span>
+    </a>
+
+    <nav class="site-navigation" aria-label="Primary navigation">
+      <a href="{{ '/#notes' | relative_url }}">Notes</a>
+      <a href="{{ site.repository_url }}">Repository</a>
+    </nav>
+  </div>
+</header>

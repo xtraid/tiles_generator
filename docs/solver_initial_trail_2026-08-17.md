@@ -1,3 +1,10 @@
+---
+layout: page
+title: Optimized solver initial-trail removal
+permalink: /solver_initial_trail_2026-08-17/
+description: Evidence for omitting rollback entries during non-rollbackable initial propagation.
+---
+
 # Optimized solver initial-trail removal — 17 August 2026
 
 Status: accepted second isolated performance-path mechanism.

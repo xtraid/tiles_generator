@@ -1,3 +1,10 @@
+---
+layout: page
+title: Project references
+permalink: /references/
+description: Primary papers and authoritative references used by Tiling Foundry.
+---
+
 # Project references
 
 This file records the primary external sources used by the project and where

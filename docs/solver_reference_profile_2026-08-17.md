@@ -1,3 +1,10 @@
+---
+layout: page
+title: Serial solver reference profile
+permalink: /solver_reference_profile_2026-08-17/
+description: Reproducible reference measurements for the serial Wang solver.
+---
+
 # Serial solver reference profile — 17 August 2026
 
 Status: authoritative baseline for the first performance work packet.

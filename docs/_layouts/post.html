@@ -1,0 +1,45 @@
+---
+layout: default
+---
+<article class="article article--post" data-wang-sections>
+  <header class="article-hero" data-wang-landmark>
+    <p class="eyebrow">Research note</p>
+    <h1>{{ page.title | escape }}</h1>
+
+    {% if page.abstract %}
+      <p class="article-abstract">{{ page.abstract }}</p>
+    {% endif %}
+
+    {% assign words = content | number_of_words %}
+    {% assign reading_minutes = words | divided_by: 220 | plus: 1 %}
+    <dl class="article-meta" aria-label="Article metadata">
+      <div>
+        <dt>Published</dt>
+        <dd><time datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date: "%Y-%m-%d" }}</time></dd>
+      </div>
+      <div>
+        <dt>Length</dt>
+        <dd>{{ reading_minutes }} min / {{ words }} words</dd>
+      </div>
+    </dl>
+  </header>
+
+  <div class="article__body" data-content-column>
+    {{ content }}
+  </div>
+
+  <nav class="post-navigation" aria-label="Adjacent research notes">
+    {% if page.previous %}
+      <a class="post-navigation__item" href="{{ page.previous.url | relative_url }}">
+        <span>Previous note</span>
+        {{ page.previous.title | escape }}
+      </a>
+    {% endif %}
+    {% if page.next %}
+      <a class="post-navigation__item post-navigation__item--next" href="{{ page.next.url | relative_url }}">
+        <span>Next note</span>
+        {{ page.next.title | escape }}
+      </a>
+    {% endif %}
+  </nav>
+</article>

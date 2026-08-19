@@ -1,3 +1,10 @@
+---
+layout: page
+title: "Yang-Zhang region builder: implementation contract"
+permalink: /yang_zhang_builder_design/
+description: The implementation contract for constructing finite Wang regions from formulas.
+---
+
 # Yang-Zhang region builder: implementation contract
 
 ## Status and purpose
