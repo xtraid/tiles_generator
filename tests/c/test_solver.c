@@ -22,6 +22,9 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->failed_leaves == 0 &&
         metrics->domain_reductions == 0 &&
         metrics->propagated_arcs == 0 &&
+        metrics->support_tile_visits == 0 &&
+        metrics->support_byte_lookups == 0 &&
+        metrics->support_table_bytes == 0 &&
         metrics->mrv_cells_scanned == 0 &&
         metrics->initial_trail_writes == 0 &&
         metrics->search_trail_writes == 0 &&

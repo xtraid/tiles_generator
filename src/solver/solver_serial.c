@@ -1,5 +1,6 @@
 #include "wang/solver.h"
 
+#include "byte_support_table.h"
 #include "failed_leaf_trace.h"
 #include "wang/tile.h"
 #include "wang/verify.h"
@@ -38,6 +39,7 @@ typedef struct {
     SearchStackMode stack_mode;
     bool record_initial_trail;
     bool transfer_sat_domains;
+    bool use_bytewise_support;
 } SolverMechanisms;
 
 typedef enum {
@@ -56,6 +58,7 @@ typedef struct {
 typedef struct {
     const Region *region;
     SolverTables tables;
+    ByteSupportTables *byte_support;
 
     uint32_t *domains;
     uint8_t *neighbor_mask;
@@ -134,6 +137,9 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->failed_leaves == 0 &&
         metrics->domain_reductions == 0 &&
         metrics->propagated_arcs == 0 &&
+        metrics->support_tile_visits == 0 &&
+        metrics->support_byte_lookups == 0 &&
+        metrics->support_table_bytes == 0 &&
         metrics->mrv_cells_scanned == 0 &&
         metrics->initial_trail_writes == 0 &&
         metrics->search_trail_writes == 0 &&
@@ -207,6 +213,7 @@ static void solver_state_destroy(SolverState *state)
     }
     free(state->domains);
     free(state->neighbor_mask);
+    free(state->byte_support);
     free(state->trail);
     free(state->queue);
     free(state->best_snapshot);
@@ -408,6 +415,39 @@ static size_t neighbor_index(
     return SIZE_MAX;
 }
 
+static uint32_t supported_neighbor_domain(
+    SolverState *state,
+    Dir dir,
+    uint32_t domain
+)
+{
+    uint32_t supported = 0;
+    if (state->byte_support != NULL) {
+        for (size_t byte = 0; byte < WANG_DOMAIN_BYTE_COUNT; ++byte) {
+            const uint8_t value = (uint8_t)domain;
+            if (value != 0) {
+                supported |= state->byte_support->support[dir][byte][value];
+                if (state->collect_metrics) {
+                    ++state->metrics.support_byte_lookups;
+                }
+            }
+            domain >>= WANG_DOMAIN_BYTE_BITS;
+        }
+        return supported;
+    }
+
+    uint32_t candidates = domain;
+    while (candidates != 0) {
+        const TileId tile = first_set_tile(candidates);
+        supported |= state->tables.compat[dir][tile];
+        candidates &= candidates - UINT32_C(1);
+        if (state->collect_metrics) {
+            ++state->metrics.support_tile_visits;
+        }
+    }
+    return supported;
+}
+
 static PropagateStatus propagate_queue(
     SolverState *state,
     size_t *out_conflict_cell
@@ -436,13 +476,11 @@ static PropagateStatus propagate_queue(
                 ++state->metrics.propagated_arcs;
             }
 
-            uint32_t supported = 0;
-            uint32_t candidates = domain;
-            while (candidates != 0) {
-                const TileId tile = first_set_tile(candidates);
-                supported |= state->tables.compat[dir][tile];
-                candidates &= candidates - UINT32_C(1);
-            }
+            const uint32_t supported = supported_neighbor_domain(
+                state,
+                dir,
+                domain
+            );
 
             const size_t adjacent = neighbor_index(state, cell_index, dir);
             const uint32_t old_domain = state->domains[adjacent];
@@ -975,6 +1013,20 @@ static WangSolveStatus solve_wang_core(
     if (!solver_tables_are_valid(&state.tables)) {
         return WANG_SOLVE_ERROR;
     }
+    if (mechanisms.use_bytewise_support) {
+        state.byte_support = malloc(sizeof(*state.byte_support));
+        if (state.byte_support == NULL) {
+            solver_state_destroy(&state);
+            return WANG_SOLVE_ERROR;
+        }
+        byte_support_tables_build(
+            (const ByteSupportCompat *)&state.tables.compat,
+            state.byte_support
+        );
+        if (state.collect_metrics) {
+            state.metrics.support_table_bytes = sizeof(*state.byte_support);
+        }
+    }
 
     if (!allocate_solver_arrays(&state)) {
         solver_state_destroy(&state);
@@ -1120,6 +1172,7 @@ WangSolveStatus wang_solve_serial(
             .stack_mode = SEARCH_STACK_FIXED,
             .record_initial_trail = true,
             .transfer_sat_domains = false,
+            .use_bytewise_support = false,
         }
     );
 }
@@ -1138,6 +1191,7 @@ WangSolveStatus wang_solve_optimized(
             .stack_mode = SEARCH_STACK_DYNAMIC,
             .record_initial_trail = false,
             .transfer_sat_domains = true,
+            .use_bytewise_support = true,
         }
     );
 }

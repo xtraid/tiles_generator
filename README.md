@@ -50,14 +50,15 @@ benchmark case. It does not require a GPU.
 ## What is interesting today
 
 The optimized solver still uses the same Wang semantics and independent witness
-verification as the reference path. It currently differs in only three isolated
+verification as the reference path. It currently differs in four isolated
 mechanisms: a geometrically growing DFS stack, omission of undo entries during
-initial propagation before rollback can be requested, and transfer of the
-already verified SAT domain buffer instead of ensuring and copying into a
-separate dense result snapshot.
+initial propagation before rollback can be requested, transfer of the already
+verified SAT domain buffer, and a private byte-wise table for aggregating tile
+support during propagation. The reference path retains its baseline tile loop,
+full initial trail, fixed-capacity stack, and dense result copy.
 
-On the versioned 12-variable Yang–Zhang SAT benchmark, five alternating runs on
-a Ryzen 5 3600 measured:
+For the first three mechanisms, five alternating runs of the versioned
+12-variable Yang–Zhang SAT benchmark on a Ryzen 5 3600 measured:
 
 | Metric | Reference | Optimized | Change |
 | --- | ---: | ---: | ---: |
@@ -67,6 +68,12 @@ a Ryzen 5 3600 measured:
 | Reserved undo trail | 8 MiB | 1 MiB | -87.5% |
 | Initial undo writes | 510,665 | 0 | -100% |
 | Final SAT result copy | 305,124 bytes | 0 bytes | -100% |
+
+With those mechanisms present in both comparison binaries, seven alternating
+runs isolated the byte-wise table at 91.146 ms before and 20.701 ms after on
+the same large SAT case (-77.29%). The corresponding support aggregation fell
+from 13,058,856 candidate-tile visits to 5,214,770 nonzero-byte lookups. The
+no-arc result-copy and root-UNSAT controls stayed within +0.60% and +3.36%.
 
 These are host-specific measurements, not universal performance claims. The
 full corpus, commands, environment, raw interpretation rules, counterexamples,
@@ -120,7 +127,7 @@ tileability.
 
 ## Current status
 
-Implemented and tested as of 17 August 2026:
+Implemented and tested as of 20 August 2026:
 
 - canonical static definition of the 23 atomic Wang tiles;
 - generalized-tile family metadata kept outside solver semantics;
@@ -143,8 +150,10 @@ Implemented and tested as of 17 August 2026:
   independent validation of every SAT witness;
 - differentially checked optimized entry point sharing the same Wang core,
   with a geometrically growing DFS stack and no undo-trail recording during
-  the non-rollbackable initial propagation, plus ownership transfer of the
-  verified SAT domains after every fallible trace operation has completed;
+  the non-rollbackable initial propagation, ownership transfer of the verified
+  SAT domains after every fallible trace operation has completed, and a
+  private 12 KiB byte-wise support table derived from the canonical
+  compatibility masks;
 - optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
   and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
@@ -180,9 +189,10 @@ Development proceeds through small, testable modules:
 
 1. add the Python region boundary and Wang Z3 cross-checks;
 2. continue isolated performance-path changes after the completed dynamic DFS
-   storage, initial-trail removal, and SAT ownership transfer;
-3. evaluate byte-wise support tables, queue deduplication, and MRV indexing
-   independently against the recorded reference baseline;
+   storage, initial-trail removal, SAT ownership transfer, and byte-wise
+   support table;
+3. evaluate queue deduplication and MRV indexing independently against the
+   recorded reference baseline;
 4. evaluate propagation scheduling and OpenMP only after the serial mechanisms
    meet their gates;
 5. implement and verify the square-to-hex translation;
@@ -292,6 +302,9 @@ reduction.
   records elimination of the optimized path's redundant final SAT allocation
   and copy, including result lifetime, diagnostic coexistence, and timing/RSS
   gates.
+- [`docs/solver_byte_support_2026-08-20.md`](docs/solver_byte_support_2026-08-20.md)
+  records the optimized byte-wise support table, exhaustive entry validation,
+  direct work counters, rejected runtime validation, and timing gates.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

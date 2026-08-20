@@ -28,6 +28,7 @@ SERIAL_SOURCES := \
 	src/core/region.c \
 	src/builder/permutation.c \
 	src/builder/yang_zhang.c \
+	src/solver/byte_support_table.c \
 	src/solver/failed_leaf_trace.c \
 	src/solver/solver_serial.c \
 	src/verify/verify_tiling.c \

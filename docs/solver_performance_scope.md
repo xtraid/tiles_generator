@@ -246,8 +246,8 @@ be confused with releasing final solver state.
 6. Add the performance path with no semantic shortcut and establish initial
    differential coverage. (Complete.)
 7. Apply one measured optimization at a time. (In progress: dynamic DFS
-   storage, initial-propagation trail removal, and SAT result ownership
-   transfer are complete as isolated mechanisms.)
+   storage, initial-propagation trail removal, SAT result ownership transfer,
+   and byte-wise support aggregation are complete as isolated mechanisms.)
 8. Introduce TaskPlan and OpenMP inside the performance path only if their
    evidence gates are met.
 9. Revisit streaming, cancellation, resource budgets, and more speculative
@@ -255,7 +255,7 @@ be confused with releasing final solver state.
 
 ## Current implementation status
 
-After the first three isolated performance mechanisms:
+After the first four isolated performance mechanisms:
 
 - `wang_solve_serial()` and `wang_solve_optimized()` are implemented public
   entry points with the same contract;
@@ -265,12 +265,17 @@ After the first three isolated performance mechanisms:
   before every DFS search restriction; the reference path retains its
   full-capacity stack and initial trail. After SAT verification and successful
   trace finalization, the optimized path transfers its domain buffer to the
-  result while the reference path retains the baseline dense snapshot copy;
+  result while the reference path retains the baseline dense snapshot copy.
+  During propagation only the optimized path uses a private 12 KiB table to
+  union support by nonzero domain byte; the reference retains the baseline
+  set-tile loop;
 - differential tests cover generic Wang SAT/UNSAT cases checked by brute
   force, backtracking, Yang-Zhang reductions checked by a Boolean oracle,
   independently verified SAT witnesses, UNSAT diagnostics, invalid API inputs,
   shallow-stack reservation, growth beyond 8,000 frames, and SAT ownership
-  coexistence with failed-leaf tracing and the opt-in diagnostic snapshot;
+  coexistence with failed-leaf tracing and the opt-in diagnostic snapshot. A
+  dedicated test also validates every one of the 4 x 3 x 256 derived support
+  entries against compatibility masks rebuilt from `TILESET`;
 - `src/parallel/solver_openmp.c` is a placeholder;
 - `include/wang/task_plan.h` is empty;
 - the shared core captures the UNSAT diagnostic snapshot lazily and only when
@@ -282,8 +287,11 @@ After the first three isolated performance mechanisms:
   metrics, and Callgrind/Cachegrind attribution;
 - `solver_sat_ownership_2026-08-20.md` records direct final-copy bytes,
   allocation/RSS behavior, comparable timing, and lifetime checks;
-- byte-wise support tables, queue deduplication, MRV indexing, `TaskPlan`, and
-  operational OpenMP are not implemented yet.
+- `solver_byte_support_2026-08-20.md` records direct support-work counters,
+  exhaustive table validation, comparable timing, and the rejected runtime
+  validation experiment;
+- queue deduplication, MRV indexing, `TaskPlan`, and operational OpenMP are not
+  implemented yet.
 
 These facts are intentional starting conditions, not claims that the accepted
 performance architecture is already implemented.

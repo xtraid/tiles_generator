@@ -488,6 +488,18 @@ static void assert_invalid_contract(SolveFunction solve)
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
     result.metrics.sat_result_copy_bytes = 0;
 
+    result.metrics.support_tile_visits = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.support_tile_visits = 0;
+
+    result.metrics.support_byte_lookups = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.support_byte_lookups = 0;
+
+    result.metrics.support_table_bytes = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.support_table_bytes = 0;
+
     region.cells[0].boundary[N] = (ColorId)COLOR_COUNT;
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
     region_destroy(&region);
@@ -497,6 +509,51 @@ static void test_matching_invalid_input_contract(void)
 {
     assert_invalid_contract(wang_solve_serial);
     assert_invalid_contract(wang_solve_optimized);
+}
+
+static void test_optimized_uses_bytewise_support_lookup(void)
+{
+    const int32_t width = 128;
+    Region region = {0};
+    assert(region_init(&region, width, 1));
+    activate_all(&region);
+
+    for (int32_t x = 0; x < width; ++x) {
+        assert(region_set_boundary(&region, x, 0, N, COLOR_B));
+        assert(region_set_boundary(&region, x, 0, S, COLOR_B));
+    }
+    assert(region_set_boundary(&region, 0, 0, W, COLOR_0));
+    assert(region_set_boundary(&region, width - 1, 0, E, COLOR_0));
+
+    const WangSolverOptions options = {
+        .flags = WANG_SOLVE_COLLECT_METRICS,
+    };
+    WangSolverMetrics reference_metrics = {0};
+    WangSolverMetrics optimized_metrics = {0};
+    assert_semantic_pair(
+        &region,
+        &options,
+        &options,
+        WANG_SOLVE_SAT,
+        &reference_metrics,
+        &optimized_metrics
+    );
+
+    assert(reference_metrics.propagated_arcs > 0);
+    assert(optimized_metrics.propagated_arcs ==
+           reference_metrics.propagated_arcs);
+    assert(reference_metrics.support_tile_visits > 0);
+    assert(reference_metrics.support_byte_lookups == 0);
+    assert(reference_metrics.support_table_bytes == 0);
+    assert(optimized_metrics.support_tile_visits == 0);
+    assert(optimized_metrics.support_byte_lookups > 0);
+    assert(optimized_metrics.support_table_bytes ==
+           DIR_COUNT * ((TILE_COUNT + 7u) / 8u) *
+           (UINT8_MAX + 1u) * sizeof(uint32_t));
+    assert(optimized_metrics.support_byte_lookups <
+           reference_metrics.support_tile_visits);
+
+    region_destroy(&region);
 }
 
 static void test_optimized_stack_is_small_for_shallow_search(void)
@@ -593,6 +650,7 @@ int main(void)
     test_yang_zhang_sat_and_unsat();
     test_unsat_diagnostic_modes();
     test_matching_invalid_input_contract();
+    test_optimized_uses_bytewise_support_lookup();
     test_optimized_stack_is_small_for_shallow_search();
     test_optimized_stack_grows_for_deep_search();
 

@@ -193,6 +193,9 @@ typedef struct {
     uint64_t failed_leaves;
     uint64_t domain_reductions;
     uint64_t propagated_arcs;
+    uint64_t support_tile_visits;
+    uint64_t support_byte_lookups;
+    size_t support_table_bytes;
     uint64_t mrv_cells_scanned;
     uint64_t initial_trail_writes;
     uint64_t search_trail_writes;
@@ -431,6 +434,13 @@ while (candidates != 0) {
 const uint32_t new_domain = domains[j] & supported;
 ```
 
+This loop remains the reference behavior. The optimized path derives a private
+`compat[direction][byte][value]` table with three 8-bit chunks for the 23-bit
+domain. It ORs one table entry for each nonzero chunk, preserving the exact
+union above without visiting every set tile. The table is allocated, built,
+owned, and freed only by the optimized solve; it is never shared mutable state.
+Its 3,072 `uint32_t` entries occupy 12,288 bytes.
+
 If the domain changes, save it to the trail and enqueue `j`. If it becomes
 zero, keep the zero in the state, record the leaf before rollback, and report
 a conflict.
@@ -544,6 +554,12 @@ Definitions that must remain stable in tests and documentation:
 - `failed_leaves`: terminal conflicts observed;
 - `domain_reductions`: writes that actually narrow a domain;
 - `propagated_arcs`: processed cell-neighbor arcs;
+- `support_tile_visits`: set tile candidates visited by the reference support
+  union loop; zero in the optimized byte-wise path;
+- `support_byte_lookups`: nonzero domain bytes looked up by the optimized
+  support union; zero in the reference path;
+- `support_table_bytes`: bytes owned by the optimized support table; 12,288 in
+  a valid optimized solve and zero in the reference path;
 - `mrv_cells_scanned`: active cells inspected by MRV scans;
 - `initial_trail_writes`: entries actually added to the trail during initial
   propagation;

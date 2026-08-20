@@ -371,6 +371,9 @@ static bool metrics_equal(
         left->failed_leaves == right->failed_leaves &&
         left->domain_reductions == right->domain_reductions &&
         left->propagated_arcs == right->propagated_arcs &&
+        left->support_tile_visits == right->support_tile_visits &&
+        left->support_byte_lookups == right->support_byte_lookups &&
+        left->support_table_bytes == right->support_table_bytes &&
         left->mrv_cells_scanned == right->mrv_cells_scanned &&
         left->initial_trail_writes == right->initial_trail_writes &&
         left->search_trail_writes == right->search_trail_writes &&
@@ -576,13 +579,16 @@ static bool run_benchmark(
     }
 
     printf(
-        "benchmark_version=4 case=%s solver=%s scope=%s expected=%s "
+        "benchmark_version=5 case=%s solver=%s scope=%s expected=%s "
         "iterations=%zu metrics=%u capture_unsat=%u "
         "elapsed_ns=%" PRIu64 " ns_per_iteration=%" PRIu64 " "
         "max_rss_kib=%ld cells=%zu active=%zu "
         "dfs_nodes=%" PRIu64 " decisions=%" PRIu64 " "
         "backtracks=%" PRIu64 " failed_leaves=%" PRIu64 " "
         "domain_reductions=%" PRIu64 " propagated_arcs=%" PRIu64 " "
+        "support_tile_visits=%" PRIu64 " "
+        "support_byte_lookups=%" PRIu64 " "
+        "support_table_bytes=%zu "
         "mrv_cells_scanned=%" PRIu64 " "
         "initial_trail_writes=%" PRIu64 " "
         "search_trail_writes=%" PRIu64 " trail_peak=%zu "
@@ -607,6 +613,9 @@ static bool run_benchmark(
         reference_metrics.failed_leaves,
         reference_metrics.domain_reductions,
         reference_metrics.propagated_arcs,
+        reference_metrics.support_tile_visits,
+        reference_metrics.support_byte_lookups,
+        reference_metrics.support_table_bytes,
         reference_metrics.mrv_cells_scanned,
         reference_metrics.initial_trail_writes,
         reference_metrics.search_trail_writes,
@@ -722,7 +731,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         printf(
-            "benchmark_version=4 compiler=%s c_standard=%ld\n",
+            "benchmark_version=5 compiler=%s c_standard=%ld\n",
             __VERSION__,
             (long)__STDC_VERSION__
         );
