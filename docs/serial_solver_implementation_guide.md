@@ -203,6 +203,7 @@ typedef struct {
     size_t dfs_stack_capacity_peak;
     size_t dfs_stack_bytes_peak;
     size_t max_depth;
+    size_t sat_result_copy_bytes;
 } WangSolverMetrics;
 
 typedef struct {
@@ -523,8 +524,12 @@ Before publishing `SAT`:
 If the verifier rejects solver output, return `ERROR`: this is an internal bug,
 not `UNSAT`.
 
-Only after this check should the final domains be copied into the public
-snapshot.
+Only after this check may the final domains become public. The reference path
+copies them into its public snapshot. The optimized path may instead transfer
+the private domain buffer, but only after every later fallible operation, such
+as trace finalization, has succeeded. It must detach that buffer from private
+state before cleanup and must not expose any diagnostic failed-leaf snapshot
+that may also exist.
 
 ## 13. Optional metrics
 
@@ -552,7 +557,10 @@ Definitions that must remain stable in tests and documentation:
 - `dfs_stack_capacity_peak`: maximum allocated DFS stack capacity in frames;
 - `dfs_stack_bytes_peak`: bytes corresponding to the maximum allocated DFS
   stack capacity;
-- `max_depth`: maximum DFS depth reached.
+- `max_depth`: maximum DFS depth reached;
+- `sat_result_copy_bytes`: bytes copied solely to construct the final SAT
+  result. It is zero for UNSAT, for the optimized ownership-transfer path, and
+  whenever metrics are disabled.
 
 Time is not part of `SolverMetrics`: benchmarks and callers measure it
 externally.
@@ -690,6 +698,12 @@ Every allocation must be preceded by an overflow check. On any error:
 
 Construct the result in a local variable and transfer it to `out_result` only
 on completion. Do not publish fields progressively.
+
+If the optimized SAT path transfers the live domain buffer, detach it only
+after trace finalization and immediately before private-state cleanup. A
+failed-leaf snapshot created during a satisfiable diagnostic run remains
+private and must still be freed. This ordering prevents both double frees and
+leaks on late writer errors.
 
 The solver must reject an undestroyed `out_result` to prevent leaks or silent
 overwrites.

@@ -5,6 +5,7 @@ set -eu
 benchmark_bin=${1:-build/benchmarks/c/bench_solver}
 
 cases='generic_forced_thin_sat
+generic_result_copy_sat
 generic_unconstrained_sat
 generic_backtracking_sat
 generic_root_unsat

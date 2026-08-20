@@ -31,7 +31,8 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->queue_peak == 0 &&
         metrics->dfs_stack_capacity_peak == 0 &&
         metrics->dfs_stack_bytes_peak == 0 &&
-        metrics->max_depth == 0;
+        metrics->max_depth == 0 &&
+        metrics->sat_result_copy_bytes == 0;
 }
 
 static uint64_t read_u64_le(const unsigned char *source)

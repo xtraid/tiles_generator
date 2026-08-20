@@ -36,6 +36,7 @@ typedef struct {
     size_t dfs_stack_capacity_peak;
     size_t dfs_stack_bytes_peak;
     size_t max_depth;
+    size_t sat_result_copy_bytes;
 } WangSolverMetrics;
 
 typedef struct {

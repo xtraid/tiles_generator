@@ -18,6 +18,7 @@
 
 typedef enum {
     BENCH_GENERIC_FORCED_THIN,
+    BENCH_GENERIC_RESULT_COPY,
     BENCH_GENERIC_UNCONSTRAINED,
     BENCH_GENERIC_BACKTRACKING,
     BENCH_GENERIC_ROOT_UNSAT,
@@ -60,6 +61,13 @@ static const BenchmarkSpec BENCHMARKS[] = {
         .scope = BENCH_SOLVER_ONLY,
         .expected_status = WANG_SOLVE_SAT,
         .default_iterations = 50,
+    },
+    {
+        .name = "generic_result_copy_sat",
+        .kind = BENCH_GENERIC_RESULT_COPY,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 20,
     },
     {
         .name = "generic_unconstrained_sat",
@@ -205,6 +213,20 @@ static bool build_unconstrained_region(BenchmarkFixture *fixture)
     return activate_all(&fixture->region);
 }
 
+static bool build_result_copy_region(BenchmarkFixture *fixture)
+{
+    if (!region_init(&fixture->region, 2048, 1024)) {
+        return false;
+    }
+    fixture->owns_region = true;
+
+    return region_set_active(&fixture->region, 0, 0, true) &&
+        region_set_boundary(&fixture->region, 0, 0, N, COLOR_B) &&
+        region_set_boundary(&fixture->region, 0, 0, E, COLOR_0) &&
+        region_set_boundary(&fixture->region, 0, 0, S, COLOR_B) &&
+        region_set_boundary(&fixture->region, 0, 0, W, COLOR_0);
+}
+
 static bool build_backtracking_region(BenchmarkFixture *fixture)
 {
     if (!region_init(&fixture->region, 4, 4)) {
@@ -288,6 +310,8 @@ static bool prepare_fixture(
     switch (spec->kind) {
     case BENCH_GENERIC_FORCED_THIN:
         return build_forced_thin_region(fixture);
+    case BENCH_GENERIC_RESULT_COPY:
+        return build_result_copy_region(fixture);
     case BENCH_GENERIC_UNCONSTRAINED:
         return build_unconstrained_region(fixture);
     case BENCH_GENERIC_BACKTRACKING:
@@ -356,7 +380,8 @@ static bool metrics_equal(
         left->queue_peak == right->queue_peak &&
         left->dfs_stack_capacity_peak == right->dfs_stack_capacity_peak &&
         left->dfs_stack_bytes_peak == right->dfs_stack_bytes_peak &&
-        left->max_depth == right->max_depth;
+        left->max_depth == right->max_depth &&
+        left->sat_result_copy_bytes == right->sat_result_copy_bytes;
 }
 
 static bool result_matches_contract(
@@ -551,7 +576,7 @@ static bool run_benchmark(
     }
 
     printf(
-        "benchmark_version=3 case=%s solver=%s scope=%s expected=%s "
+        "benchmark_version=4 case=%s solver=%s scope=%s expected=%s "
         "iterations=%zu metrics=%u capture_unsat=%u "
         "elapsed_ns=%" PRIu64 " ns_per_iteration=%" PRIu64 " "
         "max_rss_kib=%ld cells=%zu active=%zu "
@@ -563,7 +588,7 @@ static bool run_benchmark(
         "search_trail_writes=%" PRIu64 " trail_peak=%zu "
         "trail_capacity_peak=%zu trail_bytes_peak=%zu queue_peak=%zu "
         "dfs_stack_capacity_peak=%zu dfs_stack_bytes_peak=%zu "
-        "max_depth=%zu\n",
+        "max_depth=%zu sat_result_copy_bytes=%zu\n",
         spec->name,
         solver == BENCH_REFERENCE_SOLVER ? "reference" : "optimized",
         spec->scope == BENCH_SOLVER_ONLY ? "solver-only" : "end-to-end",
@@ -591,7 +616,8 @@ static bool run_benchmark(
         reference_metrics.queue_peak,
         reference_metrics.dfs_stack_capacity_peak,
         reference_metrics.dfs_stack_bytes_peak,
-        reference_metrics.max_depth
+        reference_metrics.max_depth,
+        reference_metrics.sat_result_copy_bytes
     );
 
     fixture_destroy(&fixture);
@@ -696,7 +722,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         printf(
-            "benchmark_version=3 compiler=%s c_standard=%ld\n",
+            "benchmark_version=4 compiler=%s c_standard=%ld\n",
             __VERSION__,
             (long)__STDC_VERSION__
         );

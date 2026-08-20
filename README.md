@@ -50,9 +50,11 @@ benchmark case. It does not require a GPU.
 ## What is interesting today
 
 The optimized solver still uses the same Wang semantics and independent witness
-verification as the reference path. It currently differs in only two isolated
-mechanisms: a geometrically growing DFS stack and omission of undo entries
-during initial propagation, before rollback can be requested.
+verification as the reference path. It currently differs in only three isolated
+mechanisms: a geometrically growing DFS stack, omission of undo entries during
+initial propagation before rollback can be requested, and transfer of the
+already verified SAT domain buffer instead of ensuring and copying into a
+separate dense result snapshot.
 
 On the versioned 12-variable Yang–Zhang SAT benchmark, five alternating runs on
 a Ryzen 5 3600 measured:
@@ -64,6 +66,7 @@ a Ryzen 5 3600 measured:
 | Reserved DFS stack | 1,829,928 bytes | 384 bytes | -99.98% |
 | Reserved undo trail | 8 MiB | 1 MiB | -87.5% |
 | Initial undo writes | 510,665 | 0 | -100% |
+| Final SAT result copy | 305,124 bytes | 0 bytes | -100% |
 
 These are host-specific measurements, not universal performance claims. The
 full corpus, commands, environment, raw interpretation rules, counterexamples,
@@ -140,7 +143,8 @@ Implemented and tested as of 17 August 2026:
   independent validation of every SAT witness;
 - differentially checked optimized entry point sharing the same Wang core,
   with a geometrically growing DFS stack and no undo-trail recording during
-  the non-rollbackable initial propagation;
+  the non-rollbackable initial propagation, plus ownership transfer of the
+  verified SAT domains after every fallible trace operation has completed;
 - optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
   and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
@@ -176,10 +180,9 @@ Development proceeds through small, testable modules:
 
 1. add the Python region boundary and Wang Z3 cross-checks;
 2. continue isolated performance-path changes after the completed dynamic DFS
-   storage and initial-trail removal;
-3. evaluate SAT ownership transfer, byte-wise support tables, queue
-   deduplication, and MRV indexing independently against the recorded
-   reference baseline;
+   storage, initial-trail removal, and SAT ownership transfer;
+3. evaluate byte-wise support tables, queue deduplication, and MRV indexing
+   independently against the recorded reference baseline;
 4. evaluate propagation scheduling and OpenMP only after the serial mechanisms
    meet their gates;
 5. implement and verify the square-to-hex translation;
@@ -285,6 +288,10 @@ reduction.
 - [`docs/solver_initial_trail_2026-08-17.md`](docs/solver_initial_trail_2026-08-17.md)
   records removal of the non-rollbackable initial trail from the optimized
   path, including direct writes/allocation, RSS, timing, and rollback gates.
+- [`docs/solver_sat_ownership_2026-08-20.md`](docs/solver_sat_ownership_2026-08-20.md)
+  records elimination of the optimized path's redundant final SAT allocation
+  and copy, including result lifetime, diagnostic coexistence, and timing/RSS
+  gates.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

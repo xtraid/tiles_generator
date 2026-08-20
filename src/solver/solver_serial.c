@@ -37,6 +37,7 @@ typedef enum {
 typedef struct {
     SearchStackMode stack_mode;
     bool record_initial_trail;
+    bool transfer_sat_domains;
 } SolverMechanisms;
 
 typedef enum {
@@ -142,7 +143,8 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->queue_peak == 0 &&
         metrics->dfs_stack_capacity_peak == 0 &&
         metrics->dfs_stack_bytes_peak == 0 &&
-        metrics->max_depth == 0;
+        metrics->max_depth == 0 &&
+        metrics->sat_result_copy_bytes == 0;
 }
 
 static bool result_is_destroyed(const WangSolveResult *result)
@@ -1037,15 +1039,26 @@ static WangSolveStatus solve_wang_core(
     }
 
     if (status == WANG_SOLVE_SAT) {
-        if (!ensure_best_snapshot(&state)) {
-            solver_state_destroy(&state);
-            return WANG_SOLVE_ERROR;
+        if (!mechanisms.transfer_sat_domains) {
+            size_t snapshot_bytes;
+            if (!checked_mul_size(
+                    state.cell_count,
+                    sizeof(*state.domains),
+                    &snapshot_bytes
+                ) ||
+                !ensure_best_snapshot(&state)) {
+                solver_state_destroy(&state);
+                return WANG_SOLVE_ERROR;
+            }
+            memcpy(
+                state.best_snapshot,
+                state.domains,
+                snapshot_bytes
+            );
+            if (state.collect_metrics) {
+                state.metrics.sat_result_copy_bytes = snapshot_bytes;
+            }
         }
-        memcpy(
-            state.best_snapshot,
-            state.domains,
-            state.cell_count * sizeof(*state.domains)
-        );
         state.best_resolved_count = state.resolved_count;
         state.best_conflict_cell = SIZE_MAX;
         state.has_best_leaf = true;
@@ -1064,8 +1077,12 @@ static WangSolveStatus solve_wang_core(
 
     const bool return_domains = status == WANG_SOLVE_SAT ||
         state.capture_unsat_snapshot;
+    const bool transfer_sat_domains = status == WANG_SOLVE_SAT &&
+        mechanisms.transfer_sat_domains;
     WangSolveResult result = {
-        .domains = return_domains ? state.best_snapshot : NULL,
+        .domains = transfer_sat_domains
+            ? state.domains
+            : (return_domains ? state.best_snapshot : NULL),
         .domain_count = return_domains ? state.cell_count : 0,
         .conflict_cell = status == WANG_SOLVE_SAT
             ? SIZE_MAX
@@ -1079,7 +1096,9 @@ static WangSolveStatus solve_wang_core(
             : (WangSolverMetrics){0},
     };
 
-    if (return_domains) {
+    if (transfer_sat_domains) {
+        state.domains = NULL;
+    } else if (return_domains) {
         state.best_snapshot = NULL;
     }
     solver_state_destroy(&state);
@@ -1100,6 +1119,7 @@ WangSolveStatus wang_solve_serial(
         (SolverMechanisms) {
             .stack_mode = SEARCH_STACK_FIXED,
             .record_initial_trail = true,
+            .transfer_sat_domains = false,
         }
     );
 }
@@ -1117,6 +1137,7 @@ WangSolveStatus wang_solve_optimized(
         (SolverMechanisms) {
             .stack_mode = SEARCH_STACK_DYNAMIC,
             .record_initial_trail = false,
+            .transfer_sat_domains = true,
         }
     );
 }

@@ -98,6 +98,10 @@ static void assert_unsat_result(
         assert(result->traced_leaf_count == 0);
         assert(!result->trace_truncated);
     }
+    if (options != NULL &&
+        (options->flags & WANG_SOLVE_COLLECT_METRICS) != 0) {
+        assert(result->metrics.sat_result_copy_bytes == 0);
+    }
 }
 
 static void assert_semantic_pair(
@@ -273,6 +277,54 @@ static void test_generic_backtracking_case(void)
            reference_metrics.search_trail_writes);
     assert(optimized_metrics.domain_reductions ==
            reference_metrics.domain_reductions);
+    assert(reference_metrics.sat_result_copy_bytes ==
+           region.cell_count * sizeof(uint32_t));
+    assert(optimized_metrics.sat_result_copy_bytes == 0);
+
+    char reference_path[] = "/tmp/wang-reference-sat-ownership-XXXXXX";
+    char optimized_path[] = "/tmp/wang-optimized-sat-ownership-XXXXXX";
+    int fd = mkstemp(reference_path);
+    assert(fd >= 0);
+    assert(close(fd) == 0);
+    assert(unlink(reference_path) == 0);
+    fd = mkstemp(optimized_path);
+    assert(fd >= 0);
+    assert(close(fd) == 0);
+    assert(unlink(optimized_path) == 0);
+
+    const WangSolverOptions reference_diagnostics = {
+        .flags = WANG_SOLVE_COLLECT_METRICS |
+            WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT |
+            WANG_SOLVE_TRACE_FAILED_LEAVES,
+        .failed_leaf_path = reference_path,
+        .failed_leaf_capacity = 4,
+    };
+    const WangSolverOptions optimized_diagnostics = {
+        .flags = WANG_SOLVE_COLLECT_METRICS |
+            WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT |
+            WANG_SOLVE_TRACE_FAILED_LEAVES,
+        .failed_leaf_path = optimized_path,
+        .failed_leaf_capacity = 4,
+    };
+    reference_metrics = (WangSolverMetrics){0};
+    optimized_metrics = (WangSolverMetrics){0};
+    assert_semantic_pair(
+        &region,
+        &reference_diagnostics,
+        &optimized_diagnostics,
+        WANG_SOLVE_SAT,
+        &reference_metrics,
+        &optimized_metrics
+    );
+    assert(reference_metrics.failed_leaves > 0);
+    assert(optimized_metrics.failed_leaves == reference_metrics.failed_leaves);
+    assert(reference_metrics.sat_result_copy_bytes ==
+           region.cell_count * sizeof(uint32_t));
+    assert(optimized_metrics.sat_result_copy_bytes == 0);
+    assert(access(reference_path, F_OK) == 0);
+    assert(access(optimized_path, F_OK) == 0);
+    assert(unlink(reference_path) == 0);
+    assert(unlink(optimized_path) == 0);
     region_destroy(&region);
 }
 
@@ -431,6 +483,10 @@ static void assert_invalid_contract(SolveFunction solve)
     result.domain_count = 1;
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
     result.domain_count = 0;
+
+    result.metrics.sat_result_copy_bytes = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.sat_result_copy_bytes = 0;
 
     region.cells[0].boundary[N] = (ColorId)COLOR_COUNT;
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
