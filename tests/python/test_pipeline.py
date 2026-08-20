@@ -1,7 +1,7 @@
 from pathlib import Path
 import unittest
 
-from native.formula import load_formula
+from native.formula_adapter import load_formula
 from oracles.boolean_solver import BooleanSolveStatus, solve_boolean
 from oracles.witness_check import is_valid_assignment
 

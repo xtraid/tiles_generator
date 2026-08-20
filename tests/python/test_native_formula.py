@@ -1,9 +1,12 @@
+import os
 from pathlib import Path
+import subprocess
+import sys
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from native.formula import (
+from native.formula_adapter import (
     FormulaLoadError,
     FormulaParseStatus,
     load_formula,
@@ -19,6 +22,28 @@ VALID_FORMULA = (
 
 
 class NativeFormulaTests(unittest.TestCase):
+    def test_importing_native_adapters_does_not_load_shared_library(self) -> None:
+        repository = Path(__file__).resolve().parents[2]
+        environment = dict(os.environ)
+        environment["PYTHONPATH"] = str(repository / "python")
+        program = (
+            "from unittest.mock import patch\n"
+            "with patch('native._lib.CDLL', "
+            "side_effect=AssertionError('library loaded')):\n"
+            "    import native.reduction_adapter\n"
+        )
+
+        completed = subprocess.run(
+            [sys.executable, "-c", program],
+            cwd=repository,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+
     def test_loads_and_copies_formula_from_path(self) -> None:
         with TemporaryDirectory() as directory:
             path = Path(directory) / "formula.cm13"
@@ -66,8 +91,12 @@ class NativeFormulaTests(unittest.TestCase):
                 self.destroyed = True
 
         library = RecordingLibrary()
-        with patch("native.formula._library", return_value=library), patch(
-            "native.formula._copy_formula", side_effect=RuntimeError("copy failed")
+        with patch(
+            "native.formula_adapter._formula_library",
+            return_value=library,
+        ), patch(
+            "native.formula_adapter._copy_formula",
+            side_effect=RuntimeError("copy failed"),
         ):
             with self.assertRaisesRegex(RuntimeError, "copy failed"):
                 load_formula("ignored.cm13")

@@ -45,38 +45,41 @@ verification. They do not decide correctness.
 
 ## Python ownership and oracle boundaries
 
-The current Python layer contains an immutable `Formula` model, an independent
-Boolean witness checker, an implemented Boolean Z3 solver, and a tested native
-formula adapter over `libwang.so`. The adapter owns the shared-library loading
-locally until a second native adapter justifies centralization. There is
-currently no Python `Region` model, native region adapter, or Wang Z3 encoding.
+The current Python layer contains immutable `Formula` and `Region` models, an
+independent Boolean witness checker, an implemented Boolean Z3 solver, and
+tested native formula and region adapters over `libwang.so`. The second native
+consumer justifies a private shared-library loader. A reduction adapter parses
+once, builds the native Yang–Zhang region while the C formula remains alive,
+and returns fully Python-owned copies. There is currently no Wang Z3 encoding.
 
 Dependencies flow in one direction:
 
 ```text
-C formula/parser
-      |
-      v
-   libwang
-      |
-      v
-native/formula.py
-      |
-      v
-model/formula.py
-      |
-      +--------------------+
-      |                    |
-      v                    v
-boolean_solver.py    witness_check.py
+                    C parser + Yang-Zhang builder
+                                |
+                                v
+                            libwang.so
+                                |
+                                v
+                   native/reduction_adapter.py
+                         /                 \
+                        v                   v
+          native/formula_adapter.py  native/region_adapter.py
+                        |                   |
+                        v                   v
+                model/formula.py      model/region.py
+                    /       \                 |
+                   v         v                v
+     boolean_solver.py  witness_check.py  future Wang Z3
 ```
 
 Forbidden dependencies are equally explicit:
 
 ```text
-boolean_solver.py  -X-> native/formula.py, ctypes, filesystem
+boolean_solver.py  -X-> native/formula_adapter.py, ctypes, filesystem
 witness_check.py   -X-> Z3, ctypes, C ABI
 model/formula.py   -X-> ctypes, CDLL, filesystem, Z3
+model/region.py    -X-> ctypes, CDLL, filesystem, Z3
 ```
 
 The native adapter is an ownership boundary. It must copy the complete C
@@ -86,9 +89,8 @@ may escape. The C API exposes both `cm13_formula_parse(FILE *, ...)` for native
 callers and `cm13_formula_load_path(...)` as the robust external entry point;
 the Python adapter must use the latter and never bind a C `FILE *`.
 
-Do not marshal `Formula` back into `Cm13Formula`. When one future consumer needs
-both formula and region, parse once and branch while the native formula is
-alive:
+Do not marshal `Formula` back into `Cm13Formula`. The implemented reduction
+adapter parses once and branches while the native formula is alive:
 
 ```text
                           .cm13
@@ -117,15 +119,15 @@ alive:
                                     Wang Z3 oracle
 ```
 
-The coordinating native code must use `finally` cleanup to destroy the C
-region and then the C formula after the required copies and native operations
-finish. Both returned Python models are fully Python-owned.
+The coordinating adapter must use `finally` cleanup to destroy the C region
+and then the C formula after the required copies and native operations finish.
+Both returned Python models are fully Python-owned.
 
-The future `native/region.py` will copy `Region C` into a pure Python region;
-only once that second native consumer exists should `native/_lib.py`
-centralize loading of the shared `libwang.so`. A future
-`native/reduction.py` may coordinate the single native formula lifetime shown
-above, but it must not be created before a real consumer needs it.
+`native/region_adapter.py` copies `Region C` into a pure Python region,
+`native/_lib.py` centralizes lazy loading of the shared `libwang.so`, and
+`native/reduction_adapter.py` coordinates the single native formula lifetime
+shown above. The reduction's swap trace remains native-only because no Python
+consumer needs it.
 
 There are two distinct oracle contracts:
 
@@ -138,8 +140,8 @@ There are two distinct oracle contracts:
 
 The Boolean witness checker remains pure Python and counts clause positions,
 not unique variables: `(x, x, y)` counts `x` twice. Verifiers never depend on
-the solver they check. Reverse marshalling, a common `_lib.py`, and new model
-layers remain forbidden until concrete consumers justify them.
+the solver they check. Reverse marshalling and further model layers remain
+forbidden until concrete consumers justify them.
 
 ## Minimal Region direction
 
@@ -176,8 +178,8 @@ connected instances, and its tests must verify that property.
 5. Solver-level regression tests for the explicit forwarder bands, atomic
    anchor/crossover gadgets, whole crossover blocks, composed chains,
    deterministic fuzz cases, and large volumes (complete).
-6. Z3 Boolean cross-checks on small regression instances (complete); Wang
-   tiling cross-checks follow the Python region boundary.
+6. Z3 Boolean cross-checks on small regression instances and the Python region
+   ownership boundary (complete); Wang tiling cross-checks follow.
 7. OpenMP planning only after the serial solver is stable and profiled.
 8. Square-to-hex verification, JSON, and rendering after the square core.
 

@@ -1,5 +1,6 @@
 """Copy Cubic Monotone 1-in-3 SAT formulas from the native parser."""
 
+from contextlib import contextmanager
 from ctypes import (
     CDLL,
     POINTER,
@@ -13,14 +14,13 @@ from ctypes import (
 from enum import IntEnum
 from functools import cache
 import os
-from pathlib import Path
-from typing import TypeAlias
+from typing import Iterator, TypeAlias
 
 from model.formula import Formula
+from native._lib import library
 
 
 PathLike: TypeAlias = str | bytes | os.PathLike[str] | os.PathLike[bytes]
-_LIBRARY_PATH = Path(__file__).resolve().parents[2] / "build" / "lib" / "libwang.so"
 
 
 class FormulaParseStatus(IntEnum):
@@ -81,46 +81,43 @@ class _Cm13ParseLocation(Structure):
 
 
 @cache
-def _library() -> CDLL:
-    library = CDLL(str(_LIBRARY_PATH))
-    library.cm13_formula_load_path.argtypes = [
+def _formula_library() -> CDLL:
+    lib = library()
+
+    lib.cm13_formula_load_path.argtypes = [
         c_char_p,
         POINTER(_Cm13Formula),
         POINTER(_Cm13ParseLocation),
     ]
-    library.cm13_formula_load_path.restype = c_int
-    library.cm13_formula_destroy.argtypes = [POINTER(_Cm13Formula)]
-    library.cm13_formula_destroy.restype = None
-    return library
+    lib.cm13_formula_load_path.restype = c_int
+    lib.cm13_formula_destroy.argtypes = [POINTER(_Cm13Formula)]
+    lib.cm13_formula_destroy.restype = None
+    return lib
 
 
 def _copy_formula(native_formula: _Cm13Formula) -> Formula:
     clauses = tuple(
-        tuple(
-            int(native_formula.clauses[clause].variable_index[position])
-            for position in range(3)
+        (
+            int(native_formula.clauses[clause].variable_index[0]),
+            int(native_formula.clauses[clause].variable_index[1]),
+            int(native_formula.clauses[clause].variable_index[2]),
         )
         for clause in range(native_formula.clause_count)
     )
     return Formula(variable_count=int(native_formula.variable_count), clauses=clauses)
 
 
-def load_formula(path: PathLike) -> Formula:
-    """Parse ``path`` in C and return a fully Python-owned formula.
-
-    Native allocations are released before this function returns or raises.
-    Parser failures raise :class:`FormulaLoadError`; failures to load the shared
-    library itself retain the standard :class:`OSError` from ``ctypes``.
-    """
-
+@contextmanager
+def _loaded_formula(
+    path: PathLike,
+) -> Iterator[_Cm13Formula]:
     filesystem_path = os.fspath(path)
     encoded_path = os.fsencode(filesystem_path)
     native_formula = _Cm13Formula()
     location = _Cm13ParseLocation()
-    library = _library()
-
+    lib = _formula_library()
     try:
-        status_code = library.cm13_formula_load_path(
+        status_code = lib.cm13_formula_load_path(
             encoded_path,
             byref(native_formula),
             byref(location),
@@ -138,6 +135,18 @@ def load_formula(path: PathLike) -> Formula:
                 int(location.line),
                 int(location.column),
             )
-        return _copy_formula(native_formula)
+        yield native_formula
     finally:
-        library.cm13_formula_destroy(byref(native_formula))
+        lib.cm13_formula_destroy(byref(native_formula))
+
+
+def load_formula(path: PathLike) -> Formula:
+    """Parse ``path`` in C and return a fully Python-owned formula.
+
+    Native allocations are released before this function returns or raises.
+    Parser failures raise :class:`FormulaLoadError`; failures to load the shared
+    library itself retain the standard :class:`OSError` from ``ctypes``.
+    """
+
+    with _loaded_formula(path) as native_formula:
+        return _copy_formula(native_formula)

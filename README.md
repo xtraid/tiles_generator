@@ -172,12 +172,17 @@ Implemented and tested as of 20 August 2026:
 - golden coverage of all 23 `(N,E,S,W)` tile tuples and focused solver-level
   tests for forwarder, anchor, atomic crossover, and whole crossover-block
   behavior, including deterministic chain fuzzing and volume stress;
-- immutable pure Python formula data, an independent Boolean witness checker,
-  and a Boolean Z3 oracle that preserve repeated clause positions, with SAT
-  and UNSAT regression cases;
-- a shared `libwang.so` build and a tested C-to-Python formula adapter that
-  copies parser results into immutable Python storage, reports native status
-  and source locations, and closes every native lifetime before returning;
+- immutable pure Python formula and dense region data, including canonical
+  row-major storage, active masks, color domains, and boundary-placement
+  validation;
+- an independent Boolean witness checker and Boolean Z3 oracle that preserve
+  repeated clause positions, with SAT and UNSAT regression cases;
+- a shared `libwang.so` build and tested C-to-Python formula and region
+  adapters that copy results into immutable Python storage, report native
+  parser status and source locations, and close every native lifetime before
+  returning;
+- a native reduction coordinator that parses once and branches from the live
+  C formula to the Python formula copy and Yang–Zhang region builder;
 - shared SAT/UNSAT `.cm13` fixtures exercised through both implemented
   end-to-end branches: native parser to Yang–Zhang region, serial solver, and
   verifier; and native parser to Python copy, Boolean Z3, and witness checker;
@@ -197,7 +202,8 @@ The Wang Z3 module is a scaffold; the Boolean Z3 oracle is implemented.
 
 Development proceeds through small, testable modules:
 
-1. add the Python region boundary and Wang Z3 cross-checks;
+1. add a canonical Python tileset representation and Wang Z3 cross-checks over
+   the completed Python `Region` model;
 2. continue isolated performance-path changes after the completed dynamic DFS
    storage, initial-trail removal, SAT ownership transfer, and byte-wise
    support table and queue deduplication;
