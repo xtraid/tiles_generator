@@ -71,10 +71,14 @@ typedef struct {
     size_t trail_capacity;
     TrailPhase trail_phase;
     bool record_trail;
+    uint64_t trail_interval;
+    uint64_t *trail_cell_interval;
 
     size_t *queue;
     size_t queue_count;
     size_t queue_capacity;
+    size_t *queue_pending_counts;
+    size_t queue_unique_count;
 
     uint32_t *best_snapshot;
     size_t best_resolved_count;
@@ -143,10 +147,15 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->mrv_cells_scanned == 0 &&
         metrics->initial_trail_writes == 0 &&
         metrics->search_trail_writes == 0 &&
+        metrics->initial_trail_rewrites == 0 &&
+        metrics->search_trail_rewrites == 0 &&
         metrics->trail_peak == 0 &&
         metrics->trail_capacity_peak == 0 &&
         metrics->trail_bytes_peak == 0 &&
+        metrics->enqueue_attempts == 0 &&
+        metrics->duplicate_enqueue_attempts == 0 &&
         metrics->queue_peak == 0 &&
+        metrics->queue_unique_peak == 0 &&
         metrics->dfs_stack_capacity_peak == 0 &&
         metrics->dfs_stack_bytes_peak == 0 &&
         metrics->max_depth == 0 &&
@@ -215,7 +224,9 @@ static void solver_state_destroy(SolverState *state)
     free(state->neighbor_mask);
     free(state->byte_support);
     free(state->trail);
+    free(state->trail_cell_interval);
     free(state->queue);
+    free(state->queue_pending_counts);
     free(state->best_snapshot);
     memset(state, 0, sizeof(*state));
     state->writer.fd = -1;
@@ -307,6 +318,12 @@ static bool ensure_best_snapshot(SolverState *state)
 
 static bool queue_push(SolverState *state, size_t cell_index)
 {
+    if (state->collect_metrics) {
+        ++state->metrics.enqueue_attempts;
+        if (state->queue_pending_counts[cell_index] != 0) {
+            ++state->metrics.duplicate_enqueue_attempts;
+        }
+    }
     if (state->queue_count == SIZE_MAX) {
         return false;
     }
@@ -315,13 +332,64 @@ static bool queue_push(SolverState *state, size_t cell_index)
     }
 
     state->queue[state->queue_count++] = cell_index;
+    if (state->collect_metrics) {
+        if (state->queue_pending_counts[cell_index] == 0) {
+            ++state->queue_unique_count;
+            if (state->queue_unique_count >
+                state->metrics.queue_unique_peak) {
+                state->metrics.queue_unique_peak =
+                    state->queue_unique_count;
+            }
+        }
+        ++state->queue_pending_counts[cell_index];
+    }
     return true;
+}
+
+static void queue_note_pop(SolverState *state, size_t cell_index)
+{
+    if (!state->collect_metrics) {
+        return;
+    }
+
+    --state->queue_pending_counts[cell_index];
+    if (state->queue_pending_counts[cell_index] == 0) {
+        --state->queue_unique_count;
+    }
+}
+
+static void queue_discard_pending(SolverState *state, size_t head)
+{
+    if (state->collect_metrics) {
+        while (head < state->queue_count) {
+            queue_note_pop(state, state->queue[head++]);
+        }
+    }
+    state->queue_count = 0;
 }
 
 static void note_queue_occupancy(SolverState *state, size_t occupancy)
 {
     if (state->collect_metrics && occupancy > state->metrics.queue_peak) {
         state->metrics.queue_peak = occupancy;
+    }
+}
+
+static void begin_trail_interval(SolverState *state)
+{
+    if (!state->collect_metrics) {
+        return;
+    }
+
+    if (state->trail_interval == UINT64_MAX) {
+        memset(
+            state->trail_cell_interval,
+            0,
+            state->cell_count * sizeof(*state->trail_cell_interval)
+        );
+        state->trail_interval = 1;
+    } else {
+        ++state->trail_interval;
     }
 }
 
@@ -348,6 +416,19 @@ static bool restrict_domain(
             .cell_index = cell_index,
             .old_domain = old_domain,
         };
+        if (state->collect_metrics) {
+            if (state->trail_cell_interval[cell_index] ==
+                state->trail_interval) {
+                if (state->trail_phase == TRAIL_PHASE_INITIAL) {
+                    ++state->metrics.initial_trail_rewrites;
+                } else {
+                    ++state->metrics.search_trail_rewrites;
+                }
+            } else {
+                state->trail_cell_interval[cell_index] =
+                    state->trail_interval;
+            }
+        }
     }
 
     if (domain_is_singleton(old_domain) &&
@@ -458,11 +539,12 @@ static PropagateStatus propagate_queue(
 
     while (head < state->queue_count) {
         const size_t cell_index = state->queue[head++];
+        queue_note_pop(state, cell_index);
         const uint32_t domain = state->domains[cell_index];
 
         if (domain == 0) {
             *out_conflict_cell = cell_index;
-            state->queue_count = 0;
+            queue_discard_pending(state, head);
             return PROPAGATE_CONFLICT;
         }
 
@@ -490,23 +572,23 @@ static PropagateStatus propagate_queue(
             }
 
             if (!restrict_domain(state, adjacent, new_domain)) {
-                state->queue_count = 0;
+                queue_discard_pending(state, head);
                 return PROPAGATE_ERROR;
             }
             if (new_domain == 0) {
                 *out_conflict_cell = adjacent;
-                state->queue_count = 0;
+                queue_discard_pending(state, head);
                 return PROPAGATE_CONFLICT;
             }
             if (!queue_push(state, adjacent)) {
-                state->queue_count = 0;
+                queue_discard_pending(state, head);
                 return PROPAGATE_ERROR;
             }
             note_queue_occupancy(state, state->queue_count - head);
         }
     }
 
-    state->queue_count = 0;
+    queue_discard_pending(state, head);
     return PROPAGATE_OK;
 }
 
@@ -765,6 +847,7 @@ static WangSolveStatus search(
         }
 
         const size_t mark = state->trail_count;
+        begin_trail_interval(state);
         if (!restrict_domain(state, frame->cell_index, singleton)) {
             rollback_to(state, mark);
             break;
@@ -829,6 +912,8 @@ static bool allocate_solver_arrays(SolverState *state)
 {
     size_t domain_bytes;
     size_t neighbor_bytes;
+    size_t queue_metric_bytes = 0;
+    size_t trail_metric_bytes = 0;
     if (!checked_mul_size(
             state->cell_count,
             sizeof(*state->domains),
@@ -838,7 +923,17 @@ static bool allocate_solver_arrays(SolverState *state)
             state->cell_count,
             sizeof(*state->neighbor_mask),
             &neighbor_bytes
-        )) {
+        ) ||
+        (state->collect_metrics && !checked_mul_size(
+            state->cell_count,
+            sizeof(*state->queue_pending_counts),
+            &queue_metric_bytes
+        )) ||
+        (state->collect_metrics && !checked_mul_size(
+            state->cell_count,
+            sizeof(*state->trail_cell_interval),
+            &trail_metric_bytes
+        ))) {
         return false;
     }
 
@@ -846,6 +941,21 @@ static bool allocate_solver_arrays(SolverState *state)
     state->neighbor_mask = malloc(neighbor_bytes);
     if (state->domains == NULL || state->neighbor_mask == NULL) {
         return false;
+    }
+    if (state->collect_metrics) {
+        state->queue_pending_counts = calloc(
+            state->cell_count,
+            sizeof(*state->queue_pending_counts)
+        );
+        state->trail_cell_interval = calloc(
+            state->cell_count,
+            sizeof(*state->trail_cell_interval)
+        );
+        if (state->queue_pending_counts == NULL ||
+            state->trail_cell_interval == NULL) {
+            return false;
+        }
+        state->trail_interval = 1;
     }
     return true;
 }

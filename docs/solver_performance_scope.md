@@ -239,8 +239,8 @@ be confused with releasing final solver state.
    (Complete.)
 3. Record the reference baseline in default and diagnostic modes. (Complete.)
 4. Profile allocation, initialization, propagation, MRV, trail, rollback, and
-   verification costs. (Complete for the initial baseline; direct duplicate
-   queue and repeated trail-write counters remain a later measurement.)
+   verification costs. (Complete, including the post-T67 direct
+   duplicate-queue and repeated trail-write counters.)
 5. Extract only the measured execution boundary needed by the performance
    path. (Complete: the validated Wang core is shared.)
 6. Add the performance path with no semantic shortcut and establish initial
@@ -290,8 +290,12 @@ After the first four isolated performance mechanisms:
 - `solver_byte_support_2026-08-20.md` records direct support-work counters,
   exhaustive table validation, comparable timing, and the rejected runtime
   validation experiment;
-- queue deduplication, MRV indexing, `TaskPlan`, and operational OpenMP are not
-  implemented yet.
+- `solver_queue_trail_profile_2026-08-20.md` records the direct pending queue,
+  repeated trail-write, Callgrind, and Cachegrind evidence. It selects queue
+  deduplication as the next isolated packet, keeps MRV indexing as the distinct
+  weakly constrained candidate, and rejects trail compaction for now;
+- queue deduplication, MRV indexing, trail compaction, `TaskPlan`, and
+  operational OpenMP are not implemented yet.
 
 These facts are intentional starting conditions, not claims that the accepted
 performance architecture is already implemented.

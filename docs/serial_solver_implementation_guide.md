@@ -199,10 +199,15 @@ typedef struct {
     uint64_t mrv_cells_scanned;
     uint64_t initial_trail_writes;
     uint64_t search_trail_writes;
+    uint64_t initial_trail_rewrites;
+    uint64_t search_trail_rewrites;
     size_t trail_peak;
     size_t trail_capacity_peak;
     size_t trail_bytes_peak;
+    uint64_t enqueue_attempts;
+    uint64_t duplicate_enqueue_attempts;
     size_t queue_peak;
+    size_t queue_unique_peak;
     size_t dfs_stack_capacity_peak;
     size_t dfs_stack_bytes_peak;
     size_t max_depth;
@@ -564,12 +569,23 @@ Definitions that must remain stable in tests and documentation:
 - `initial_trail_writes`: entries actually added to the trail during initial
   propagation;
 - `search_trail_writes`: entries actually added to the trail during DFS;
+- `initial_trail_rewrites`: initial-propagation trail entries after the first
+  entry for the same cell in that single interval;
+- `search_trail_rewrites`: DFS trail entries after the first for the same cell
+  since the current candidate marker, including its singleton restriction and
+  propagation;
 - `trail_peak`: maximum number of entries simultaneously present in the trail;
 - `trail_capacity_peak`: maximum allocated trail capacity in entries;
 - `trail_bytes_peak`: bytes corresponding to the maximum allocated trail
   capacity;
+- `enqueue_attempts`: requests to append a cell to the propagation FIFO;
+- `duplicate_enqueue_attempts`: enqueue requests made while the same cell
+  already has an unconsumed FIFO occurrence; these requests are still
+  appended by the current solver;
 - `queue_peak`: maximum number of not-yet-popped indices simultaneously
   present in a propagation queue;
+- `queue_unique_peak`: maximum number of distinct cell indices among those
+  not-yet-popped occurrences;
 - `dfs_stack_capacity_peak`: maximum allocated DFS stack capacity in frames;
 - `dfs_stack_bytes_peak`: bytes corresponding to the maximum allocated DFS
   stack capacity;

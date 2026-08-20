@@ -191,8 +191,8 @@ Development proceeds through small, testable modules:
 2. continue isolated performance-path changes after the completed dynamic DFS
    storage, initial-trail removal, SAT ownership transfer, and byte-wise
    support table;
-3. evaluate queue deduplication and MRV indexing independently against the
-   recorded reference baseline;
+3. implement and evaluate queue deduplication as the next isolated packet,
+   then evaluate MRV indexing independently for weakly constrained search;
 4. evaluate propagation scheduling and OpenMP only after the serial mechanisms
    meet their gates;
 5. implement and verify the square-to-hex translation;
@@ -305,6 +305,9 @@ reduction.
 - [`docs/solver_byte_support_2026-08-20.md`](docs/solver_byte_support_2026-08-20.md)
   records the optimized byte-wise support table, exhaustive entry validation,
   direct work counters, rejected runtime validation, and timing gates.
+- [`docs/solver_queue_trail_profile_2026-08-20.md`](docs/solver_queue_trail_profile_2026-08-20.md)
+  records the post-T67 queue/trail counters and profiler evidence that selects
+  queue deduplication as the next isolated performance packet.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

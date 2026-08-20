@@ -277,6 +277,20 @@ static void test_generic_backtracking_case(void)
            reference_metrics.search_trail_writes);
     assert(optimized_metrics.domain_reductions ==
            reference_metrics.domain_reductions);
+    assert(reference_metrics.enqueue_attempts == 138);
+    assert(optimized_metrics.enqueue_attempts ==
+           reference_metrics.enqueue_attempts);
+    assert(reference_metrics.duplicate_enqueue_attempts == 43);
+    assert(optimized_metrics.duplicate_enqueue_attempts ==
+           reference_metrics.duplicate_enqueue_attempts);
+    assert(reference_metrics.queue_unique_peak == 16);
+    assert(optimized_metrics.queue_unique_peak ==
+           reference_metrics.queue_unique_peak);
+    assert(reference_metrics.initial_trail_rewrites == 31);
+    assert(optimized_metrics.initial_trail_rewrites == 0);
+    assert(reference_metrics.search_trail_rewrites == 13);
+    assert(optimized_metrics.search_trail_rewrites ==
+           reference_metrics.search_trail_rewrites);
     assert(reference_metrics.sat_result_copy_bytes ==
            region.cell_count * sizeof(uint32_t));
     assert(optimized_metrics.sat_result_copy_bytes == 0);
@@ -499,6 +513,26 @@ static void assert_invalid_contract(SolveFunction solve)
     result.metrics.support_table_bytes = 1;
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
     result.metrics.support_table_bytes = 0;
+
+    result.metrics.enqueue_attempts = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.enqueue_attempts = 0;
+
+    result.metrics.duplicate_enqueue_attempts = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.duplicate_enqueue_attempts = 0;
+
+    result.metrics.queue_unique_peak = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.queue_unique_peak = 0;
+
+    result.metrics.initial_trail_rewrites = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.initial_trail_rewrites = 0;
+
+    result.metrics.search_trail_rewrites = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.search_trail_rewrites = 0;
 
     region.cells[0].boundary[N] = (ColorId)COLOR_COUNT;
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);

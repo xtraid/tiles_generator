@@ -28,10 +28,15 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->mrv_cells_scanned == 0 &&
         metrics->initial_trail_writes == 0 &&
         metrics->search_trail_writes == 0 &&
+        metrics->enqueue_attempts == 0 &&
+        metrics->duplicate_enqueue_attempts == 0 &&
+        metrics->initial_trail_rewrites == 0 &&
+        metrics->search_trail_rewrites == 0 &&
         metrics->trail_peak == 0 &&
         metrics->trail_capacity_peak == 0 &&
         metrics->trail_bytes_peak == 0 &&
         metrics->queue_peak == 0 &&
+        metrics->queue_unique_peak == 0 &&
         metrics->dfs_stack_capacity_peak == 0 &&
         metrics->dfs_stack_bytes_peak == 0 &&
         metrics->max_depth == 0 &&
@@ -297,6 +302,18 @@ static void test_backtracking_and_trace_truncation(void)
     assert(result.decision_depth == 8);
     /* The queue tail reaches 62, but at most 34 entries are pending. */
     assert(result.metrics.queue_peak == 34);
+    assert(result.metrics.enqueue_attempts == 138);
+    assert(result.metrics.duplicate_enqueue_attempts == 43);
+    assert(result.metrics.queue_unique_peak == 16);
+    assert(result.metrics.initial_trail_rewrites == 31);
+    assert(result.metrics.search_trail_rewrites == 13);
+    assert(result.metrics.duplicate_enqueue_attempts <=
+           result.metrics.enqueue_attempts);
+    assert(result.metrics.queue_unique_peak <= result.metrics.queue_peak);
+    assert(result.metrics.initial_trail_rewrites <=
+           result.metrics.initial_trail_writes);
+    assert(result.metrics.search_trail_rewrites <=
+           result.metrics.search_trail_writes);
     assert(result.traced_leaf_count == 1);
     assert(result.trace_truncated);
     assert_sat_snapshot(&region, &result);

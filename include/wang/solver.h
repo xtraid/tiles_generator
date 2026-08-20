@@ -32,10 +32,15 @@ typedef struct {
     uint64_t mrv_cells_scanned;
     uint64_t initial_trail_writes;
     uint64_t search_trail_writes;
+    uint64_t initial_trail_rewrites;
+    uint64_t search_trail_rewrites;
     size_t trail_peak;
     size_t trail_capacity_peak;
     size_t trail_bytes_peak;
+    uint64_t enqueue_attempts;
+    uint64_t duplicate_enqueue_attempts;
     size_t queue_peak;
+    size_t queue_unique_peak;
     size_t dfs_stack_capacity_peak;
     size_t dfs_stack_bytes_peak;
     size_t max_depth;

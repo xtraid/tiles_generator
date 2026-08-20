@@ -377,10 +377,16 @@ static bool metrics_equal(
         left->mrv_cells_scanned == right->mrv_cells_scanned &&
         left->initial_trail_writes == right->initial_trail_writes &&
         left->search_trail_writes == right->search_trail_writes &&
+        left->initial_trail_rewrites == right->initial_trail_rewrites &&
+        left->search_trail_rewrites == right->search_trail_rewrites &&
         left->trail_peak == right->trail_peak &&
         left->trail_capacity_peak == right->trail_capacity_peak &&
         left->trail_bytes_peak == right->trail_bytes_peak &&
+        left->enqueue_attempts == right->enqueue_attempts &&
+        left->duplicate_enqueue_attempts ==
+            right->duplicate_enqueue_attempts &&
         left->queue_peak == right->queue_peak &&
+        left->queue_unique_peak == right->queue_unique_peak &&
         left->dfs_stack_capacity_peak == right->dfs_stack_capacity_peak &&
         left->dfs_stack_bytes_peak == right->dfs_stack_bytes_peak &&
         left->max_depth == right->max_depth &&
@@ -579,7 +585,7 @@ static bool run_benchmark(
     }
 
     printf(
-        "benchmark_version=5 case=%s solver=%s scope=%s expected=%s "
+        "benchmark_version=6 case=%s solver=%s scope=%s expected=%s "
         "iterations=%zu metrics=%u capture_unsat=%u "
         "elapsed_ns=%" PRIu64 " ns_per_iteration=%" PRIu64 " "
         "max_rss_kib=%ld cells=%zu active=%zu "
@@ -591,8 +597,13 @@ static bool run_benchmark(
         "support_table_bytes=%zu "
         "mrv_cells_scanned=%" PRIu64 " "
         "initial_trail_writes=%" PRIu64 " "
-        "search_trail_writes=%" PRIu64 " trail_peak=%zu "
-        "trail_capacity_peak=%zu trail_bytes_peak=%zu queue_peak=%zu "
+        "search_trail_writes=%" PRIu64 " "
+        "initial_trail_rewrites=%" PRIu64 " "
+        "search_trail_rewrites=%" PRIu64 " trail_peak=%zu "
+        "trail_capacity_peak=%zu trail_bytes_peak=%zu "
+        "enqueue_attempts=%" PRIu64 " "
+        "duplicate_enqueue_attempts=%" PRIu64 " queue_peak=%zu "
+        "queue_unique_peak=%zu "
         "dfs_stack_capacity_peak=%zu dfs_stack_bytes_peak=%zu "
         "max_depth=%zu sat_result_copy_bytes=%zu\n",
         spec->name,
@@ -619,10 +630,15 @@ static bool run_benchmark(
         reference_metrics.mrv_cells_scanned,
         reference_metrics.initial_trail_writes,
         reference_metrics.search_trail_writes,
+        reference_metrics.initial_trail_rewrites,
+        reference_metrics.search_trail_rewrites,
         reference_metrics.trail_peak,
         reference_metrics.trail_capacity_peak,
         reference_metrics.trail_bytes_peak,
+        reference_metrics.enqueue_attempts,
+        reference_metrics.duplicate_enqueue_attempts,
         reference_metrics.queue_peak,
+        reference_metrics.queue_unique_peak,
         reference_metrics.dfs_stack_capacity_peak,
         reference_metrics.dfs_stack_bytes_peak,
         reference_metrics.max_depth,
@@ -731,7 +747,7 @@ int main(int argc, char **argv)
             return EXIT_FAILURE;
         }
         printf(
-            "benchmark_version=5 compiler=%s c_standard=%ld\n",
+            "benchmark_version=6 compiler=%s c_standard=%ld\n",
             __VERSION__,
             (long)__STDC_VERSION__
         );
