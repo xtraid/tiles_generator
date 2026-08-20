@@ -50,12 +50,14 @@ benchmark case. It does not require a GPU.
 ## What is interesting today
 
 The optimized solver still uses the same Wang semantics and independent witness
-verification as the reference path. It currently differs in four isolated
+verification as the reference path. It currently differs in five isolated
 mechanisms: a geometrically growing DFS stack, omission of undo entries during
 initial propagation before rollback can be requested, transfer of the already
 verified SAT domain buffer, and a private byte-wise table for aggregating tile
-support during propagation. The reference path retains its baseline tile loop,
-full initial trail, fixed-capacity stack, and dense result copy.
+support during propagation, plus a packed private pending-cell index that
+suppresses duplicate optimized-queue entries. The reference path retains its
+duplicate-accepting FIFO, baseline tile loop, full initial trail,
+fixed-capacity stack, and dense result copy.
 
 For the first three mechanisms, five alternating runs of the versioned
 12-variable Yang–Zhang SAT benchmark on a Ryzen 5 3600 measured:
@@ -80,6 +82,12 @@ full corpus, commands, environment, raw interpretation rules, counterexamples,
 and mechanism-by-mechanism reports are versioned under [`benchmarks/`](benchmarks/)
 and [`docs/`](docs/). In particular, the unconstrained deep-search case keeps
 its required 2 MiB search trail and showed no material timing change (-0.40%).
+
+Seven alternating runs isolated queue deduplication at 23.463 ms before and
+19.659 ms after on large Yang–Zhang SAT (-16.21%), and at 4.857 versus 3.912 ms
+on large UNSAT (-19.46%). Processed arcs fell by 35.8--39.2 percent; the packed
+index occupied 9,536 bytes on large SAT and was not allocated for root-conflict
+or no-arc controls. The unconstrained control remained MRV-bound at +0.09%.
 
 ## Goal
 
@@ -153,7 +161,9 @@ Implemented and tested as of 20 August 2026:
   the non-rollbackable initial propagation, ownership transfer of the verified
   SAT domains after every fallible trace operation has completed, and a
   private 12 KiB byte-wise support table derived from the canonical
-  compatibility masks;
+  compatibility masks, plus a packed private pending-cell bitset that
+  suppresses duplicate optimized-queue entries and is omitted when no active
+  adjacency can use it;
 - optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
   and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
@@ -190,9 +200,8 @@ Development proceeds through small, testable modules:
 1. add the Python region boundary and Wang Z3 cross-checks;
 2. continue isolated performance-path changes after the completed dynamic DFS
    storage, initial-trail removal, SAT ownership transfer, and byte-wise
-   support table;
-3. implement and evaluate queue deduplication as the next isolated packet,
-   then evaluate MRV indexing independently for weakly constrained search;
+   support table and queue deduplication;
+3. evaluate MRV indexing independently for weakly constrained search;
 4. evaluate propagation scheduling and OpenMP only after the serial mechanisms
    meet their gates;
 5. implement and verify the square-to-hex translation;
@@ -308,6 +317,10 @@ reduction.
 - [`docs/solver_queue_trail_profile_2026-08-20.md`](docs/solver_queue_trail_profile_2026-08-20.md)
   records the post-T67 queue/trail counters and profiler evidence that selects
   queue deduplication as the next isolated performance packet.
+- [`docs/solver_queue_dedup_2026-08-20.md`](docs/solver_queue_dedup_2026-08-20.md)
+  records the packed optimized pending index, direct queue/arc reductions,
+  alternating timing and RSS gates, and post-change Callgrind/Cachegrind
+  attribution.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

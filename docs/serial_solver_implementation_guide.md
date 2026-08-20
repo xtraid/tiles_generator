@@ -7,7 +7,7 @@ description: An implementation guide to verification, serial Wang search, diagno
 
 # Technical guide: verifier, serial solver, and leaf trace
 
-Implementation status as of 17 August 2026: this guide has been implemented.
+Implementation status as of 20 August 2026: this guide has been implemented.
 The public headers and tests are authoritative where they differ from an
 earlier prospective detail below. The document remains the technical contract
 and maintenance handoff for the module.
@@ -206,6 +206,7 @@ typedef struct {
     size_t trail_bytes_peak;
     uint64_t enqueue_attempts;
     uint64_t duplicate_enqueue_attempts;
+    size_t queue_dedup_index_bytes;
     size_t queue_peak;
     size_t queue_unique_peak;
     size_t dfs_stack_capacity_peak;
@@ -420,8 +421,12 @@ Do not copy the entire domain array at every decision.
 
 ## 10. Propagation and leaf snapshots
 
-Use a contiguous queue of indices. The baseline allows duplicates: add an
-`in_queue` mechanism only if metrics reveal a real problem.
+Use a contiguous queue of indices. The reference baseline allows duplicates.
+The measured optimized path owns a packed pending-cell bitset and suppresses a
+push when the corresponding cell already has an unconsumed occurrence. It
+clears the bit before processing the pop, so a later restriction may enqueue
+the cell again, and drains remaining bits on every conflict or error exit.
+Root conflicts and active graphs with no arcs allocate no pending index.
 
 When the domain of cell `i` changes, for each active neighbor `j` in direction
 `d`:
@@ -580,8 +585,11 @@ Definitions that must remain stable in tests and documentation:
   capacity;
 - `enqueue_attempts`: requests to append a cell to the propagation FIFO;
 - `duplicate_enqueue_attempts`: enqueue requests made while the same cell
-  already has an unconsumed FIFO occurrence; these requests are still
-  appended by the current solver;
+  already has an unconsumed FIFO occurrence; the reference appends them while
+  the optimized path counts and suppresses them;
+- `queue_dedup_index_bytes`: bytes in the optimized packed pending-cell index;
+  zero for the reference path, root conflicts, no-arc cases, and whenever
+  metrics are disabled;
 - `queue_peak`: maximum number of not-yet-popped indices simultaneously
   present in a propagation queue;
 - `queue_unique_peak`: maximum number of distinct cell indices among those
@@ -774,6 +782,9 @@ Test at least:
 - every SAT result accepted by `wang_verify_tiling()`;
 - determinism: two executions produce the same status and snapshot;
 - metrics all zero without the flag and consistent with the flag;
+- optimized queue deduplication with exact requests, suppressed pending
+  duplicates, packed-index bytes, pop/re-enqueue behavior, and cleanup after a
+  conflict; reference queue metrics remain at their baseline values;
 - rollback after multiple levels, including multiple changes to the same cell;
 - an unconstrained region exceeding ten thousand decision levels, to exercise
   the explicit DFS stack without depending on the process stack;
@@ -846,7 +857,7 @@ Optimizations allowed only after measurement:
 
 - 24 MRV buckets;
 - a bitset of cells for each bucket;
-- propagation-queue deduplication;
+- further propagation scheduling after the completed queue deduplication;
 - traces of deltas or decision paths instead of complete snapshots.
 
 Do not introduce skip lists or global memoization as the first optimization.

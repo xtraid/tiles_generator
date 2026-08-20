@@ -258,6 +258,15 @@ static void test_generic_backtracking_case(void)
     assert(region_set_boundary(&region, 3, 1, E, COLOR_1));
     assert(region_set_boundary(&region, 3, 3, E, COLOR_0));
 
+    assert_semantic_pair(
+        &region,
+        NULL,
+        NULL,
+        WANG_SOLVE_SAT,
+        NULL,
+        NULL
+    );
+
     WangSolverMetrics reference_metrics = {0};
     WangSolverMetrics optimized_metrics = {0};
     assert_semantic_pair(
@@ -281,11 +290,20 @@ static void test_generic_backtracking_case(void)
     assert(optimized_metrics.enqueue_attempts ==
            reference_metrics.enqueue_attempts);
     assert(reference_metrics.duplicate_enqueue_attempts == 43);
-    assert(optimized_metrics.duplicate_enqueue_attempts ==
-           reference_metrics.duplicate_enqueue_attempts);
+    assert(optimized_metrics.duplicate_enqueue_attempts == 31);
     assert(reference_metrics.queue_unique_peak == 16);
-    assert(optimized_metrics.queue_unique_peak ==
-           reference_metrics.queue_unique_peak);
+    assert(reference_metrics.queue_dedup_index_bytes == 0);
+    assert(optimized_metrics.queue_dedup_index_bytes ==
+           ((region.cell_count + 63u) / 64u) * sizeof(uint64_t));
+    assert(optimized_metrics.queue_peak ==
+           optimized_metrics.queue_unique_peak);
+    assert(optimized_metrics.queue_peak < reference_metrics.queue_peak);
+    assert(optimized_metrics.propagated_arcs == 323);
+    assert(optimized_metrics.propagated_arcs <
+           reference_metrics.propagated_arcs);
+    assert(optimized_metrics.enqueue_attempts -
+           optimized_metrics.duplicate_enqueue_attempts >
+           region.cell_count);
     assert(reference_metrics.initial_trail_rewrites == 31);
     assert(optimized_metrics.initial_trail_rewrites == 0);
     assert(reference_metrics.search_trail_rewrites == 13);
@@ -430,14 +448,20 @@ static void test_unsat_diagnostic_modes(void)
         .flags = WANG_SOLVE_COLLECT_METRICS |
             WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT,
     };
+    WangSolverMetrics reference_metrics = {0};
+    WangSolverMetrics optimized_metrics = {0};
     assert_semantic_pair(
         &region,
         &capture,
         &capture,
         WANG_SOLVE_UNSAT,
-        NULL,
-        NULL
+        &reference_metrics,
+        &optimized_metrics
     );
+    assert(reference_metrics.enqueue_attempts == 0);
+    assert(optimized_metrics.enqueue_attempts == 0);
+    assert(reference_metrics.queue_dedup_index_bytes == 0);
+    assert(optimized_metrics.queue_dedup_index_bytes == 0);
 
     char reference_path[] = "/tmp/wang-reference-diff-XXXXXX";
     char optimized_path[] = "/tmp/wang-optimized-diff-XXXXXX";
@@ -472,6 +496,41 @@ static void test_unsat_diagnostic_modes(void)
     assert(access(optimized_path, F_OK) == 0);
     assert(unlink(reference_path) == 0);
     assert(unlink(optimized_path) == 0);
+    region_destroy(&region);
+}
+
+static void test_queue_dedup_index_skips_no_arc_case(void)
+{
+    Region region = {0};
+    assert(region_init(&region, 1, 1));
+    activate_all(&region);
+    assert(region_set_boundary(&region, 0, 0, N, COLOR_B));
+    assert(region_set_boundary(&region, 0, 0, E, COLOR_0));
+    assert(region_set_boundary(&region, 0, 0, S, COLOR_B));
+    assert(region_set_boundary(&region, 0, 0, W, COLOR_0));
+
+    const WangSolverOptions options = {
+        .flags = WANG_SOLVE_COLLECT_METRICS,
+    };
+    WangSolverMetrics reference_metrics = {0};
+    WangSolverMetrics optimized_metrics = {0};
+    assert_semantic_pair(
+        &region,
+        &options,
+        &options,
+        WANG_SOLVE_SAT,
+        &reference_metrics,
+        &optimized_metrics
+    );
+    assert(reference_metrics.enqueue_attempts == 1);
+    assert(optimized_metrics.enqueue_attempts == 1);
+    assert(reference_metrics.duplicate_enqueue_attempts == 0);
+    assert(optimized_metrics.duplicate_enqueue_attempts == 0);
+    assert(reference_metrics.queue_peak == 1);
+    assert(optimized_metrics.queue_peak == 1);
+    assert(reference_metrics.queue_dedup_index_bytes == 0);
+    assert(optimized_metrics.queue_dedup_index_bytes == 0);
+
     region_destroy(&region);
 }
 
@@ -526,6 +585,10 @@ static void assert_invalid_contract(SolveFunction solve)
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
     result.metrics.queue_unique_peak = 0;
 
+    result.metrics.queue_dedup_index_bytes = 1;
+    assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
+    result.metrics.queue_dedup_index_bytes = 0;
+
     result.metrics.initial_trail_rewrites = 1;
     assert(solve(&region, NULL, &result) == WANG_SOLVE_ERROR);
     result.metrics.initial_trail_rewrites = 0;
@@ -574,7 +637,8 @@ static void test_optimized_uses_bytewise_support_lookup(void)
     );
 
     assert(reference_metrics.propagated_arcs > 0);
-    assert(optimized_metrics.propagated_arcs ==
+    assert(optimized_metrics.propagated_arcs > 0);
+    assert(optimized_metrics.propagated_arcs <
            reference_metrics.propagated_arcs);
     assert(reference_metrics.support_tile_visits > 0);
     assert(reference_metrics.support_byte_lookups == 0);
@@ -586,6 +650,12 @@ static void test_optimized_uses_bytewise_support_lookup(void)
            (UINT8_MAX + 1u) * sizeof(uint32_t));
     assert(optimized_metrics.support_byte_lookups <
            reference_metrics.support_tile_visits);
+    assert(reference_metrics.queue_dedup_index_bytes == 0);
+    assert(optimized_metrics.queue_dedup_index_bytes ==
+           ((region.cell_count + 63u) / 64u) * sizeof(uint64_t));
+    assert(optimized_metrics.queue_peak ==
+           optimized_metrics.queue_unique_peak);
+    assert(optimized_metrics.queue_peak < reference_metrics.queue_peak);
 
     region_destroy(&region);
 }
@@ -641,8 +711,8 @@ static void test_optimized_stack_is_small_for_shallow_search(void)
     assert(reference.metrics.search_trail_writes > 0);
     assert(optimized.metrics.search_trail_writes ==
            reference.metrics.search_trail_writes);
-    assert(optimized.metrics.domain_reductions ==
-           reference.metrics.domain_reductions);
+    assert(reference.metrics.domain_reductions > 0);
+    assert(optimized.metrics.domain_reductions > 0);
     assert(optimized.metrics.trail_capacity_peak <
            reference.metrics.trail_capacity_peak);
     assert(optimized.metrics.trail_bytes_peak <
@@ -683,6 +753,7 @@ int main(void)
     test_generic_backtracking_case();
     test_yang_zhang_sat_and_unsat();
     test_unsat_diagnostic_modes();
+    test_queue_dedup_index_skips_no_arc_case();
     test_matching_invalid_input_contract();
     test_optimized_uses_bytewise_support_lookup();
     test_optimized_stack_is_small_for_shallow_search();

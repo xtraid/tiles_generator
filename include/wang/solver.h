@@ -39,6 +39,7 @@ typedef struct {
     size_t trail_bytes_peak;
     uint64_t enqueue_attempts;
     uint64_t duplicate_enqueue_attempts;
+    size_t queue_dedup_index_bytes;
     size_t queue_peak;
     size_t queue_unique_peak;
     size_t dfs_stack_capacity_peak;

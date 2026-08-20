@@ -30,6 +30,7 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->search_trail_writes == 0 &&
         metrics->enqueue_attempts == 0 &&
         metrics->duplicate_enqueue_attempts == 0 &&
+        metrics->queue_dedup_index_bytes == 0 &&
         metrics->initial_trail_rewrites == 0 &&
         metrics->search_trail_rewrites == 0 &&
         metrics->trail_peak == 0 &&
@@ -304,6 +305,7 @@ static void test_backtracking_and_trace_truncation(void)
     assert(result.metrics.queue_peak == 34);
     assert(result.metrics.enqueue_attempts == 138);
     assert(result.metrics.duplicate_enqueue_attempts == 43);
+    assert(result.metrics.queue_dedup_index_bytes == 0);
     assert(result.metrics.queue_unique_peak == 16);
     assert(result.metrics.initial_trail_rewrites == 31);
     assert(result.metrics.search_trail_rewrites == 13);

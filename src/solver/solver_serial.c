@@ -13,6 +13,10 @@
 #define WANG_DOMAIN_ALL \
     ((UINT32_C(1) << TILE_COUNT) - UINT32_C(1))
 
+#ifndef WANG_OPTIMIZED_QUEUE_DEDUP
+#define WANG_OPTIMIZED_QUEUE_DEDUP 1
+#endif
+
 typedef struct {
     uint32_t edge_mask[DIR_COUNT][COLOR_COUNT];
     uint32_t compat[DIR_COUNT][TILE_COUNT];
@@ -40,6 +44,7 @@ typedef struct {
     bool record_initial_trail;
     bool transfer_sat_domains;
     bool use_bytewise_support;
+    bool deduplicate_queue;
 } SolverMechanisms;
 
 typedef enum {
@@ -77,8 +82,11 @@ typedef struct {
     size_t *queue;
     size_t queue_count;
     size_t queue_capacity;
+    uint64_t *queue_pending_bits;
     size_t *queue_pending_counts;
     size_t queue_unique_count;
+    bool has_neighbor_arcs;
+    bool deduplicate_queue;
 
     uint32_t *best_snapshot;
     size_t best_resolved_count;
@@ -154,6 +162,7 @@ static bool metrics_are_zero(const WangSolverMetrics *metrics)
         metrics->trail_bytes_peak == 0 &&
         metrics->enqueue_attempts == 0 &&
         metrics->duplicate_enqueue_attempts == 0 &&
+        metrics->queue_dedup_index_bytes == 0 &&
         metrics->queue_peak == 0 &&
         metrics->queue_unique_peak == 0 &&
         metrics->dfs_stack_capacity_peak == 0 &&
@@ -226,6 +235,7 @@ static void solver_state_destroy(SolverState *state)
     free(state->trail);
     free(state->trail_cell_interval);
     free(state->queue);
+    free(state->queue_pending_bits);
     free(state->queue_pending_counts);
     free(state->best_snapshot);
     memset(state, 0, sizeof(*state));
@@ -316,13 +326,78 @@ static bool ensure_best_snapshot(SolverState *state)
     return state->best_snapshot != NULL;
 }
 
+static bool allocate_queue_dedup_index(SolverState *state)
+{
+    if (!state->deduplicate_queue || !state->has_neighbor_arcs) {
+        return true;
+    }
+
+    const size_t word_count = state->cell_count / 64u +
+        (state->cell_count % 64u != 0 ? 1u : 0u);
+    size_t bytes;
+    if (!checked_mul_size(
+            word_count,
+            sizeof(*state->queue_pending_bits),
+            &bytes
+        )) {
+        return false;
+    }
+
+    state->queue_pending_bits = calloc(
+        word_count,
+        sizeof(*state->queue_pending_bits)
+    );
+    if (state->queue_pending_bits == NULL) {
+        return false;
+    }
+    if (state->collect_metrics) {
+        state->metrics.queue_dedup_index_bytes = bytes;
+    }
+    return true;
+}
+
+static bool queue_cell_is_pending(
+    const SolverState *state,
+    size_t cell_index
+)
+{
+    if (state->queue_pending_bits != NULL) {
+        const uint64_t bit = UINT64_C(1) << (cell_index % 64u);
+        return (state->queue_pending_bits[cell_index / 64u] & bit) != 0;
+    }
+    return state->collect_metrics &&
+        state->queue_pending_counts[cell_index] != 0;
+}
+
+static void queue_set_pending(SolverState *state, size_t cell_index)
+{
+    if (state->queue_pending_bits != NULL) {
+        state->queue_pending_bits[cell_index / 64u] |=
+            UINT64_C(1) << (cell_index % 64u);
+    }
+}
+
+static void queue_clear_pending(SolverState *state, size_t cell_index)
+{
+    if (state->queue_pending_bits != NULL) {
+        state->queue_pending_bits[cell_index / 64u] &=
+            ~(UINT64_C(1) << (cell_index % 64u));
+    }
+}
+
 static bool queue_push(SolverState *state, size_t cell_index)
 {
+    const bool already_pending =
+        (state->deduplicate_queue || state->collect_metrics) &&
+        queue_cell_is_pending(state, cell_index);
     if (state->collect_metrics) {
         ++state->metrics.enqueue_attempts;
-        if (state->queue_pending_counts[cell_index] != 0) {
+        if (already_pending) {
             ++state->metrics.duplicate_enqueue_attempts;
         }
+    }
+    if (state->deduplicate_queue && already_pending) {
+        return true;
     }
     if (state->queue_count == SIZE_MAX) {
         return false;
@@ -332,6 +407,7 @@ static bool queue_push(SolverState *state, size_t cell_index)
     }
 
     state->queue[state->queue_count++] = cell_index;
+    queue_set_pending(state, cell_index);
     if (state->collect_metrics) {
         if (state->queue_pending_counts[cell_index] == 0) {
             ++state->queue_unique_count;
@@ -348,6 +424,7 @@ static bool queue_push(SolverState *state, size_t cell_index)
 
 static void queue_note_pop(SolverState *state, size_t cell_index)
 {
+    queue_clear_pending(state, cell_index);
     if (!state->collect_metrics) {
         return;
     }
@@ -360,7 +437,7 @@ static void queue_note_pop(SolverState *state, size_t cell_index)
 
 static void queue_discard_pending(SolverState *state, size_t head)
 {
-    if (state->collect_metrics) {
+    if (state->collect_metrics || state->queue_pending_bits != NULL) {
         while (head < state->queue_count) {
             queue_note_pop(state, state->queue[head++]);
         }
@@ -613,7 +690,7 @@ static PropagateStatus propagate_initial(
     state->queue_count = 0;
     for (size_t i = 0; i < state->cell_count; ++i) {
         if (state->region->cells[i].active && !queue_push(state, i)) {
-            state->queue_count = 0;
+            queue_discard_pending(state, 0);
             return PROPAGATE_ERROR;
         }
     }
@@ -993,6 +1070,7 @@ static bool initialize_domains(
                 if (neighbor != NULL && neighbor->active) {
                     state->neighbor_mask[index] |=
                         (uint8_t)(UINT8_C(1) << dir);
+                    state->has_neighbor_arcs = true;
                     continue;
                 }
 
@@ -1119,6 +1197,7 @@ static WangSolveStatus solve_wang_core(
     state.capture_unsat_snapshot = options != NULL &&
         (options->flags & WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT) != 0;
     state.record_trail = mechanisms.record_initial_trail;
+    state.deduplicate_queue = mechanisms.deduplicate_queue;
     build_solver_tables(&state.tables);
     if (!solver_tables_are_valid(&state.tables)) {
         return WANG_SOLVE_ERROR;
@@ -1145,6 +1224,11 @@ static WangSolveStatus solve_wang_core(
 
     size_t initial_conflict;
     if (!initialize_domains(&state, &initial_conflict)) {
+        solver_state_destroy(&state);
+        return WANG_SOLVE_ERROR;
+    }
+    if (initial_conflict == SIZE_MAX &&
+        !allocate_queue_dedup_index(&state)) {
         solver_state_destroy(&state);
         return WANG_SOLVE_ERROR;
     }
@@ -1283,6 +1367,7 @@ WangSolveStatus wang_solve_serial(
             .record_initial_trail = true,
             .transfer_sat_domains = false,
             .use_bytewise_support = false,
+            .deduplicate_queue = false,
         }
     );
 }
@@ -1302,6 +1387,7 @@ WangSolveStatus wang_solve_optimized(
             .record_initial_trail = false,
             .transfer_sat_domains = true,
             .use_bytewise_support = true,
+            .deduplicate_queue = WANG_OPTIMIZED_QUEUE_DEDUP != 0,
         }
     );
 }

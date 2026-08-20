@@ -247,7 +247,8 @@ be confused with releasing final solver state.
    differential coverage. (Complete.)
 7. Apply one measured optimization at a time. (In progress: dynamic DFS
    storage, initial-propagation trail removal, SAT result ownership transfer,
-   and byte-wise support aggregation are complete as isolated mechanisms.)
+   byte-wise support aggregation, and optimized queue deduplication are
+   complete as isolated mechanisms.)
 8. Introduce TaskPlan and OpenMP inside the performance path only if their
    evidence gates are met.
 9. Revisit streaming, cancellation, resource budgets, and more speculative
@@ -255,7 +256,7 @@ be confused with releasing final solver state.
 
 ## Current implementation status
 
-After the first four isolated performance mechanisms:
+After the first five isolated performance mechanisms:
 
 - `wang_solve_serial()` and `wang_solve_optimized()` are implemented public
   entry points with the same contract;
@@ -268,7 +269,11 @@ After the first four isolated performance mechanisms:
   result while the reference path retains the baseline dense snapshot copy.
   During propagation only the optimized path uses a private 12 KiB table to
   union support by nonzero domain byte; the reference retains the baseline
-  set-tile loop;
+  set-tile loop. The optimized path also uses a packed private pending-cell
+  bitset to suppress an enqueue when that cell already has an unconsumed FIFO
+  occurrence; the bit is cleared before propagation so later domain changes
+  may enqueue the cell again. The reference FIFO continues to accept
+  duplicates;
 - differential tests cover generic Wang SAT/UNSAT cases checked by brute
   force, backtracking, Yang-Zhang reductions checked by a Boolean oracle,
   independently verified SAT witnesses, UNSAT diagnostics, invalid API inputs,
@@ -294,8 +299,11 @@ After the first four isolated performance mechanisms:
   repeated trail-write, Callgrind, and Cachegrind evidence. It selects queue
   deduplication as the next isolated packet, keeps MRV indexing as the distinct
   weakly constrained candidate, and rejects trail compaction for now;
-- queue deduplication, MRV indexing, trail compaction, `TaskPlan`, and
-  operational OpenMP are not implemented yet.
+- `solver_queue_dedup_2026-08-20.md` records the retained packed pending index,
+  direct scheduling work, native timings, memory, and post-change profiler
+  attribution;
+- MRV indexing, trail compaction, `TaskPlan`, and operational OpenMP are not
+  implemented yet.
 
 These facts are intentional starting conditions, not claims that the accepted
 performance architecture is already implemented.
