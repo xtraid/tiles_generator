@@ -173,6 +173,9 @@ bool failed_leaf_writer_write(
     if (!writer->active) {
         return true;
     }
+    if (writer->failed) {
+        return false;
+    }
     if (writer->count == writer->capacity) {
         writer->truncated = true;
         return true;
@@ -184,6 +187,7 @@ bool failed_leaf_writer_write(
         !checked_add(TRACE_HEADER_SIZE, relative_offset, &record_offset) ||
         record_offset > writer->mapped_size ||
         writer->record_size > writer->mapped_size - record_offset) {
+        writer->failed = true;
         return false;
     }
 
@@ -209,19 +213,22 @@ bool failed_leaf_writer_finish(FailedLeafWriter *writer)
         return true;
     }
 
-    put_u32(
-        writer->mapping + 28,
-        writer->truncated ? TRACE_FLAG_TRUNCATED : 0
-    );
-    put_u64(writer->mapping + 56, (uint64_t)writer->count);
+    size_t used_size = 0;
+    bool ok = !writer->failed;
+    if (ok) {
+        put_u32(
+            writer->mapping + 28,
+            writer->truncated ? TRACE_FLAG_TRUNCATED : 0
+        );
+        put_u64(writer->mapping + 56, (uint64_t)writer->count);
 
-    size_t record_bytes;
-    size_t used_size;
-    bool ok = checked_mul(
-        writer->count,
-        writer->record_size,
-        &record_bytes
-    ) && checked_add(TRACE_HEADER_SIZE, record_bytes, &used_size);
+        size_t record_bytes;
+        ok = checked_mul(
+            writer->count,
+            writer->record_size,
+            &record_bytes
+        ) && checked_add(TRACE_HEADER_SIZE, record_bytes, &used_size);
+    }
 
     if (ok && msync(writer->mapping, used_size, MS_SYNC) != 0) {
         ok = false;
@@ -243,12 +250,10 @@ bool failed_leaf_writer_finish(FailedLeafWriter *writer)
         ok = false;
     }
 
-    writer->fd = -1;
-    writer->active = false;
     if (!ok) {
         (void)unlink(writer->path);
     }
     free(writer->path);
-    writer->path = NULL;
+    *writer = (FailedLeafWriter){ .fd = -1 };
     return ok;
 }
