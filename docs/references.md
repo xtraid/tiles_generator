@@ -3,6 +3,11 @@ layout: page
 title: Project references
 permalink: /references/
 description: Primary papers and authoritative references used by Tiling Foundry.
+section: Yang–Zhang reduction
+document_kind: Reference bibliography
+status: Current reference policy
+updated: 2026-08-21
+nav_order: 30
 ---
 
 # Project references
@@ -43,7 +48,7 @@ Journal of Combinatorial Theory, Series A 120(7), 1804--1816, 2013.
   was found on the author-hosted copy.
 
 This is the earlier fixed-rectangle NP-completeness result improved by the
-Yang--Zhang construction.
+Yang–Zhang construction.
 
 ## Wang tiles, computation, and the square-to-hex motivation
 

@@ -1,25 +1,31 @@
 ---
 layout: page
-title: Yang-Zhang reduction implementation notes
+title: "Yang–Zhang reduction: geometry and witness correspondence"
 permalink: /reduction_notes/
-description: Implementation notes for the finite Wang-region reduction.
+description: Mathematical conventions, project-specific geometry, and witness-level evidence for the implemented reduction.
+section: Yang–Zhang reduction
+document_kind: Technical note
+status: Current implementation
+updated: 2026-08-21
+nav_order: 10
 ---
 
-# Yang-Zhang reduction implementation notes
+# Yang–Zhang reduction: geometry and witness correspondence
 
-## Document role
+This page connects the mathematical reduction to the concrete geometry built
+by Tiling Foundry. It distinguishes conventions inherited from Yang–Zhang from
+the explicit forwarder bands and indexing choices introduced by this project,
+then records the witness-level evidence provided by the implementation.
 
-This is the living record of reduction-specific conventions adopted by the
-implementation. It documents indexing, geometry, project adaptations, and the
-correctness obligations that must become regression tests.
+Public headers and tests define implemented behavior. The
+[formula-to-region builder]({{ '/yang_zhang_builder_design/' | relative_url }})
+describes the software contract, while the
+[initial architecture specification]({{ '/historical_architecture/' | relative_url }})
+is retained only as design history.
 
-It is not the repository roadmap or a second architecture specification. The
-public headers and tests define implemented behavior; the architecture PDF
-describes the broader future design.
+The distinction throughout this page is between:
 
-This document records both:
-
-1. conventions inherited from Yang-Zhang;
+1. conventions inherited from Yang–Zhang;
 2. explicit conventions introduced by this project.
 
 Those two categories must not be confused.
@@ -59,8 +65,8 @@ therefore:
 crossover_block_width = AdjacentSwap.row + 1
 ```
 
-This conversion must remain explicit in tests because an off-by-one error here changes
-the geometry of every crossover gadget.
+The tests keep this conversion explicit because an off-by-one error changes the
+geometry of every crossover gadget.
 
 ## 3. Paper example
 
@@ -204,10 +210,10 @@ reduction stages:
 - variable, clause, and isolated crossover boundary markers;
 - transactional transfer of the exact adjacent-swap trace.
 
-The builder deliberately does not parse text, solve the formula, choose tiles, or
-store gadget annotations in `Region`. Its full implementation contract is recorded
-in `yang_zhang_builder_design.md`; public headers and black-box tests are
-authoritative for implemented behavior.
+The builder does not parse text, solve the formula, choose tiles, or store
+gadget annotations in `Region`. Its full implementation contract is recorded
+in the [formula-to-region builder page]({{ '/yang_zhang_builder_design/' | relative_url }});
+public headers and black-box tests are authoritative for implemented behavior.
 
 ## 7. Witness-level correspondence
 

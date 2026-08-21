@@ -3,11 +3,14 @@ layout: page
 title: Optimized solver initial-trail removal
 permalink: /solver_initial_trail_2026-08-17/
 description: Evidence for omitting rollback entries during non-rollbackable initial propagation.
+section: Solver optimization
+document_kind: Benchmark report
+status: Accepted mechanism
+updated: 2026-08-17
+nav_order: 40
 ---
 
 # Optimized solver initial-trail removal — 17 August 2026
-
-Status: accepted second isolated performance-path mechanism.
 
 This report evaluates undo-trail recording during initial propagation. The
 reference path keeps the baseline behavior. The optimized path applies the
@@ -25,9 +28,8 @@ non-consumable undo records are omitted.
 The measurements used Debian GCC 14.2.0, portable C17 `-O2`, Linux
 `6.12.101+deb13-amd64`, and benchmark schema version 3 on the Ryzen 5 3600
 host. The parent commit is `1c1d4cb621babe3e00dd429e089f8225ddf825ca`.
-T55--T57 remained intentionally uncommitted during measurement. Final file
-hashes for the relevant implementation and harness are recorded at the end of
-this report.
+File hashes for the measured implementation and harness are recorded at the
+end of this report.
 
 Reference remains the benchmark default. Optimized measurements add
 `--solver optimized`. Timing uses metrics disabled; direct trail records add
@@ -59,7 +61,7 @@ refers only to search-time entries.
 
 Differential coverage now includes an initial-propagation UNSAT conflict with
 opt-in snapshot, a generic SAT case with two real backtracks, a shallow
-Yang-Zhang SAT case, and the existing brute-force, Boolean-oracle, invalid
+Yang–Zhang SAT case, and the existing brute-force, Boolean-oracle, invalid
 input, diagnostic, deep-stack, and independent-witness checks. In the
 backtracking case, both paths perform 78 search trail writes and two
 backtracks; only the optimized initial write count is zero.
@@ -76,12 +78,12 @@ boundary setup reductions that were already never rollbackable or trailed.
 | generic unconstrained SAT | 36,290 | 0 | 80,808 | 2,097,152 | 2,097,152 |
 | generic backtracking SAT | 46 | 0 | 78 | 1,024 | 1,024 |
 | generic root UNSAT | 0 | 0 | 0 | 0 | 0 |
-| Yang-Zhang SAT, 6 variables | 60,290 | 0 | 7,378 | 1,048,576 | 131,072 |
-| Yang-Zhang UNSAT, 6 variables | 16,265 | 0 | 1,009 | 262,144 | 16,384 |
-| Yang-Zhang SAT, 12 variables | 510,665 | 0 | 58,532 | 8,388,608 | 1,048,576 |
-| Yang-Zhang UNSAT, 12 variables | 135,600 | 0 | 3,898 | 4,194,304 | 65,536 |
+| Yang–Zhang SAT, 6 variables | 60,290 | 0 | 7,378 | 1,048,576 | 131,072 |
+| Yang–Zhang UNSAT, 6 variables | 16,265 | 0 | 1,009 | 262,144 | 16,384 |
+| Yang–Zhang SAT, 12 variables | 510,665 | 0 | 58,532 | 8,388,608 | 1,048,576 |
+| Yang–Zhang UNSAT, 12 variables | 135,600 | 0 | 3,898 | 4,194,304 | 65,536 |
 
-The large satisfiable Yang-Zhang case therefore avoids 510,665 initial writes
+The large satisfiable Yang–Zhang case therefore avoids 510,665 initial writes
 and reduces actual trail capacity from 8 MiB to 1 MiB. The remaining 1 MiB is
 not waste: it stores the 58,532 search-time undo entries required by the
 current DFS path. The unconstrained case still needs the same 2 MiB capacity
@@ -102,17 +104,17 @@ timing difference; the direct write counters above isolate the new mechanism.
 | generic unconstrained SAT | 170.765704 | 170.089742 | -0.40% |
 | generic backtracking SAT | 0.025067 | 0.025275 | +0.83% |
 | generic root UNSAT | 20.765696 | 20.574230 | -0.92% |
-| Yang-Zhang SAT, 6 variables | 9.976152 | 9.099286 | -8.79% |
-| Yang-Zhang UNSAT, 6 variables | 2.468779 | 2.251082 | -8.82% |
-| Yang-Zhang SAT, 12 variables | 80.033297 | 73.150064 | -8.60% |
-| Yang-Zhang UNSAT, 12 variables | 20.613965 | 18.195170 | -11.73% |
+| Yang–Zhang SAT, 6 variables | 9.976152 | 9.099286 | -8.79% |
+| Yang–Zhang UNSAT, 6 variables | 2.468779 | 2.251082 | -8.82% |
+| Yang–Zhang SAT, 12 variables | 80.033297 | 73.150064 | -8.60% |
+| Yang–Zhang UNSAT, 12 variables | 20.613965 | 18.195170 | -11.73% |
 
 The MRV-bound unconstrained case is effectively unchanged, as expected: it
 still pays for its search trail and spends most work in linear MRV selection.
 The small backtracking case remains well inside the predeclared 3--5 percent
 regression guardrail. Initial-propagation-heavy cases show repeatable gains.
 
-The four Yang-Zhang end-to-end cases were also measured over five alternating
+The four Yang–Zhang end-to-end cases were also measured over five alternating
 passes:
 
 | Case | Reference median ms | Optimized median ms | Delta |
@@ -134,10 +136,10 @@ floor are treated as overlap rather than claimed improvements.
 | generic unconstrained SAT | 3,308 | 3,328 | +20 |
 | generic backtracking SAT | 1,876 | 1,876 | 0 |
 | generic root UNSAT | 21,684 | 21,632 | -52 |
-| Yang-Zhang SAT, 6 variables | 3,108 | 2,084 | -1,024 |
-| Yang-Zhang UNSAT, 6 variables | 1,956 | 1,876 | -80 |
-| Yang-Zhang SAT, 12 variables | 14,952 | 7,964 | -6,988 |
-| Yang-Zhang UNSAT, 12 variables | 4,872 | 2,844 | -2,028 |
+| Yang–Zhang SAT, 6 variables | 3,108 | 2,084 | -1,024 |
+| Yang–Zhang UNSAT, 6 variables | 1,956 | 1,876 | -80 |
+| Yang–Zhang SAT, 12 variables | 14,952 | 7,964 | -6,988 |
+| Yang–Zhang UNSAT, 12 variables | 4,872 | 2,844 | -2,028 |
 
 The large SAT reduction is repeatable and closely follows the 7 MiB direct
 trail-capacity reduction. The large UNSAT optimized sample contained one

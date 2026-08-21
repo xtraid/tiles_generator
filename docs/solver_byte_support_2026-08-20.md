@@ -3,11 +3,14 @@ layout: page
 title: Optimized solver byte-wise support tables
 permalink: /solver_byte_support_2026-08-20/
 description: Evidence for aggregating Wang propagation support by domain byte.
+section: Solver optimization
+document_kind: Benchmark report
+status: Accepted mechanism
+updated: 2026-08-20
+nav_order: 60
 ---
 
 # Optimized solver byte-wise support tables — 20 August 2026
-
-Status: accepted fourth isolated performance-path mechanism.
 
 This report evaluates only the union of compatible neighbor tiles during
 propagation. The reference path retains the baseline loop over every set tile
@@ -20,9 +23,9 @@ order, diagnostics, SAT result ownership, `TaskPlan`, and OpenMP are unchanged.
 
 Measurements used Debian GCC 14.2.0, portable C17 `-O2`, Linux
 `6.12.101+deb13-amd64`, benchmark schema version 5, and CPU 2 affinity on the
-Ryzen 5 3600 host. The parent commit is
-`01a8dd48ab86761f2629b50c457cfcc0b33a5930`; the work remained intentionally
-uncommitted while measured.
+Ryzen 5 3600 host. The source snapshot is based on parent commit
+`01a8dd48ab86761f2629b50c457cfcc0b33a5930`; the binary hashes below identify
+the measured revisions.
 
 The comparable binaries use the same schema-v5 source, public metrics layout,
 compiler, flags, source list, and link order. They differ only in the private

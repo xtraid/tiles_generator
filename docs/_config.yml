@@ -1,6 +1,6 @@
 title: Tiling Foundry
 description: >-
-  An inspectable software laboratory for finite Wang tilings, the Yang-Zhang
+  An inspectable software laboratory for finite Wang tilings, the Yang–Zhang
   reduction, and measured solver design.
 lang: en
 timezone: Europe/Rome
@@ -29,3 +29,4 @@ defaults:
 
 exclude:
   - post-template.md
+  - plans

@@ -3,11 +3,14 @@ layout: page
 title: Optimized solver SAT ownership transfer
 permalink: /solver_sat_ownership_2026-08-20/
 description: Evidence for transferring the verified SAT domain buffer without a redundant final copy.
+section: Solver optimization
+document_kind: Benchmark report
+status: Accepted mechanism
+updated: 2026-08-20
+nav_order: 50
 ---
 
 # Optimized solver SAT ownership transfer — 20 August 2026
-
-Status: accepted third isolated performance-path mechanism.
 
 This report evaluates only construction of a successful solver result. The
 reference path retains the baseline behavior: after independent SAT
@@ -21,9 +24,9 @@ cleanup. Stack, trail, propagation, MRV, search order, UNSAT behavior,
 
 Measurements used Debian GCC 14.2.0, portable C17 `-O2`, Linux
 `6.12.101+deb13-amd64`, benchmark schema version 4, and CPU 2 affinity on the
-Ryzen 5 3600 host. The parent commit is
-`0836a84ce095458349ffb83c1f1062fe7796846b`; the work remained intentionally
-uncommitted while measured.
+Ryzen 5 3600 host. The source snapshot is based on parent commit
+`0836a84ce095458349ffb83c1f1062fe7796846b`; the binary hashes below identify
+the measured revisions.
 
 The comparable before/after binaries use the same schema-v4 benchmark source,
 public metrics layout, compiler, flags, and link order. They differ only in
@@ -71,10 +74,10 @@ work counters remained consistent between paths.
 | generic unconstrained SAT | 9,216 | 36,864 | 0 |
 | generic backtracking SAT | 16 | 64 | 0 |
 | generic root UNSAT | 2,097,152 | 0 | 0 |
-| Yang-Zhang SAT, 6 variables | 9,361 | 37,444 | 0 |
-| Yang-Zhang UNSAT, 6 variables | 2,576 | 0 | 0 |
-| Yang-Zhang SAT, 12 variables | 76,281 | 305,124 | 0 |
-| Yang-Zhang UNSAT, 12 variables | 20,351 | 0 | 0 |
+| Yang–Zhang SAT, 6 variables | 9,361 | 37,444 | 0 |
+| Yang–Zhang UNSAT, 6 variables | 2,576 | 0 | 0 |
+| Yang–Zhang SAT, 12 variables | 76,281 | 305,124 | 0 |
+| Yang–Zhang UNSAT, 12 variables | 20,351 | 0 | 0 |
 
 `generic_result_copy_sat` is an explicit isolation case: a 2,048 by 1,024
 dense region with one forced active cell. Search work is negligible while the
@@ -92,10 +95,10 @@ count, metrics disabled, and `taskset -c 2`. Medians are per solve.
 | generic forced thin SAT | 3.348710 | 3.334935 | -0.41% |
 | generic unconstrained SAT | 176.416618 | 177.749401 | +0.76% |
 | generic backtracking SAT | 0.030867 | 0.031459 | +1.92% |
-| Yang-Zhang SAT, 6 variables | 10.835402 | 10.905642 | +0.65% |
-| Yang-Zhang SAT, 12 variables | 86.804561 | 86.946962 | +0.16% |
+| Yang–Zhang SAT, 6 variables | 10.835402 | 10.905642 | +0.65% |
+| Yang–Zhang SAT, 12 variables | 86.804561 | 86.946962 | +0.16% |
 | generic root UNSAT | 21.066107 | 21.349006 | +1.34% |
-| Yang-Zhang UNSAT, 12 variables | 21.358734 | 21.415372 | +0.27% |
+| Yang–Zhang UNSAT, 12 variables | 21.358734 | 21.415372 | +0.27% |
 
 All non-isolation cases remain below the predeclared 3--5 percent material
 regression guardrail. The two UNSAT controls do not execute the mechanism and
@@ -104,7 +107,7 @@ show the remaining measurement floor.
 Median process peak RSS for the isolation case falls from 29,912 KiB to
 23,744 KiB, a reduction of 6,168 KiB. The allocator does not return a full
 8 MiB delta in `ru_maxrss`, so the direct copy counter is authoritative. The
-large Yang-Zhang SAT median falls from 10,752 KiB to 10,140 KiB; its 298 KiB
+large Yang–Zhang SAT median falls from 10,752 KiB to 10,140 KiB; its 298 KiB
 copy is small relative to allocator and process-level noise, so no general RSS
 ratio is claimed.
 

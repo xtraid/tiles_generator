@@ -3,15 +3,18 @@ layout: page
 title: Optimized solver queue deduplication
 permalink: /solver_queue_dedup_2026-08-20/
 description: Evidence for the optimized solver's packed pending-cell index.
+section: Solver optimization
+document_kind: Benchmark report
+status: Accepted mechanism
+updated: 2026-08-20
+nav_order: 80
 ---
 
 # Optimized solver queue deduplication — 20 August 2026
 
-Status: accepted fifth isolated performance-path mechanism.
-
-This packet changes only the optimized propagation queue. An enqueue request
-for a cell that already has an unconsumed FIFO occurrence is counted but no
-longer appended. The reference path retains the original duplicate-accepting
+This accepted mechanism changes only the optimized propagation queue. An
+enqueue request for a cell that already has an unconsumed FIFO occurrence is
+counted but no longer appended. The reference path retains the original duplicate-accepting
 FIFO. Domain meaning, support union, trail and rollback, row-major MRV, DFS
 order, diagnostics, SAT ownership, `TaskPlan`, and OpenMP are otherwise
 unchanged.
@@ -50,18 +53,6 @@ Final implementation source identities:
 bc1b28dd441a4213516730e845856c4f16bde2f1e0ea0f2fca0f1bf09131bc34  benchmarks/c/bench_solver.c
 16ade5c35372d4a30848997ec26819a8ce2b432e238b439d99e7da3ef89d5188  tests/c/test_solver.c
 1c63c30c48ea0d906e5153e65fda7d3083bdb0b4c87015ebe98278918b3771c0  tests/c/test_solver_differential.c
-```
-
-The six pre-existing Python changes are outside T71. Their identities were
-recorded before the packet and reproduced after the final cleanup:
-
-```text
-64b765063a51ab8af6891e9e292fc74601c01a46  D  python/native/formula.py (HEAD blob)
-85278d4d947a2560e0281192254c9da3f36ab093  M  tests/python/test_native_formula.py
-11436052bf024cd949525b40f700272f2302af53  M  tests/python/test_pipeline.py
-eb24fea1e9dfd4eb44143a82b66cdea7c6e3e5b6  ?? python/model/region.py
-c2974a66d0f4ecd167ce97ad2e70a5934c1a6490  ?? python/native/_lib.py
-4bff754d6a43178625b1a96cb623a76990bed4fd  ?? python/native/formula_adapter.py
 ```
 
 Environment:
@@ -166,15 +157,16 @@ The corresponding propagation and storage changes were:
 | Yang–Zhang UNSAT, 12 variables | 634,603 | 391,037 | 1,333,794 | 937,209 | 2,544 |
 
 Every optimized effective peak equals `queue_unique_peak`, while reference
-metrics reproduce the T69 values exactly. DFS decisions, backtracks, failed
-leaves, MRV scans, search-trail writes and rewrites, result status, and witness
+metrics reproduce the preceding queue-profile values exactly. DFS decisions,
+backtracks, failed leaves, MRV scans, search-trail writes and rewrites, result
+status, and witness
 or diagnostic contracts remain stable. Some domain-reduction and request
 counts change because coalescing pending work changes when the latest domain is
 observed; they are work counters, not semantic invariants.
 
-## Predeclared gates and alternating timings
+## Acceptance gates and alternating timings
 
-The packet was to be retained only if queue work and propagation-heavy time
+The mechanism was retained only because queue work and propagation-heavy time
 improved, reference/optimized semantics remained equivalent, no-arc controls
 stayed within approximately 3--5 percent, and the packed index introduced no
 unjustified memory regression.
@@ -219,8 +211,8 @@ denominators:
 | Yang–Zhang SAT, 12 variables | 345,792,100 | 293,859,879 | -15.02% | `propagate_queue`, 55.62% | `propagate_queue`, 45.49% |
 
 As an architecture-inclusive sanity check, the retained totals are also below
-the committed T69 profile by 3.50 percent on forced propagation, 0.23 percent
-on unconstrained search, 13.60 percent on medium SAT, and 12.55 percent on
+the preceding instrumented profile by 3.50 percent on forced propagation, 0.23
+percent on unconstrained search, 13.60 percent on medium SAT, and 12.55 percent on
 large SAT. Those cross-report values are not a paired same-schema timing gate;
 they confirm that common v7 mechanism plumbing does not erase the instruction
 reduction measured by the controlled switch comparison.
@@ -256,9 +248,9 @@ native medians by 15.91--19.46 percent, and keeps all controls within the
 predeclared regression limit. Its direct storage cost is 9,536 bytes on large
 SAT and zero on the no-arc/root-conflict controls.
 
-The next distinct serial packet should evaluate an MRV index. Trail
-compaction remains unsupported by T69's rewrite counts. `TaskPlan`, OpenMP,
-ring-buffer compaction, and other propagation scheduling changes remain out of
+An MRV index remains a distinct candidate for weakly constrained search. Trail
+compaction remains unsupported by the recorded rewrite counts. `TaskPlan`,
+OpenMP, ring-buffer compaction, and other propagation scheduling changes remain out of
 scope.
 
 ## Limitations
@@ -273,22 +265,22 @@ scope.
   are the relevant direct-work outcomes.
 - The same-schema switch-off binary includes dormant v7 mechanism plumbing
   common to both comparison sides. It isolates enabling the packed index; the
-  separate committed-T69 instruction check covers the total integration.
+  separate comparison with the instrumented baseline covers total integration.
 - CPU frequency was not fixed and the host was not isolated. Timing medians
   are descriptive host evidence, not confidence intervals.
 - Callgrind and Cachegrind include fixture construction, mandatory witness
   verification, and teardown. Cachegrind is a simulated cache model.
 - No conclusion about trail compaction, `TaskPlan`, or OpenMP follows from
-  this packet.
+  this mechanism evaluation.
 
 ## Reproduction commands
 
 Immutable baseline:
 
 ```sh
-git worktree add --detach /tmp/tiling-foundry-t71-baseline \
+git worktree add --detach /tmp/tiling-foundry-queue-dedup-baseline \
   308e34a1e67c2e9a298b083724ad80d8bd83685e
-make -C /tmp/tiling-foundry-t71-baseline \
+make -C /tmp/tiling-foundry-queue-dedup-baseline \
   build/benchmarks/c/bench_solver
 ```
 
@@ -298,19 +290,19 @@ Comparable schema-v7 binaries:
 make clean
 make build/benchmarks/c/bench_solver \
   CFLAGS='-std=c17 -Wall -Wextra -Wpedantic -O2 -DWANG_OPTIMIZED_QUEUE_DEDUP=0'
-cp build/benchmarks/c/bench_solver /tmp/t71-bench-baseline
+cp build/benchmarks/c/bench_solver /tmp/queue-dedup-bench-baseline
 
 make clean
 make build/benchmarks/c/bench_solver
-cp build/benchmarks/c/bench_solver /tmp/t71-bench-dedup
+cp build/benchmarks/c/bench_solver /tmp/queue-dedup-bench-enabled
 ```
 
 Direct metrics and a timing sample:
 
 ```sh
-/tmp/t71-bench-dedup --case yang_zhang_sat_large_solver \
+/tmp/queue-dedup-bench-enabled --case yang_zhang_sat_large_solver \
   --solver optimized --iterations 1 --metrics
-taskset -c 2 /tmp/t71-bench-dedup \
+taskset -c 2 /tmp/queue-dedup-bench-enabled \
   --case yang_zhang_sat_large_solver --solver optimized
 ```
 
@@ -318,13 +310,13 @@ Profilers:
 
 ```sh
 valgrind --tool=callgrind --error-exitcode=1 \
-  --callgrind-out-file=/tmp/t71-callgrind.out \
-  /tmp/t71-bench-dedup --case yang_zhang_sat_large_solver \
+  --callgrind-out-file=/tmp/queue-dedup-callgrind.out \
+  /tmp/queue-dedup-bench-enabled --case yang_zhang_sat_large_solver \
   --solver optimized --iterations 1
 
 valgrind --tool=cachegrind --cache-sim=yes --branch-sim=yes \
-  --error-exitcode=1 --cachegrind-out-file=/tmp/t71-cachegrind.out \
-  /tmp/t71-bench-dedup --case yang_zhang_sat_large_solver \
+  --error-exitcode=1 --cachegrind-out-file=/tmp/queue-dedup-cachegrind.out \
+  /tmp/queue-dedup-bench-enabled --case yang_zhang_sat_large_solver \
   --solver optimized --iterations 1
 ```
 

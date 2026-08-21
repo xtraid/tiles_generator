@@ -1,6 +1,7 @@
 CC ?= cc
 AR ?= ar
 UV ?= uv
+PYTHON ?= python3
 VALGRIND ?= valgrind
 UV_CACHE_DIR ?= $(CURDIR)/.uv-cache
 export UV_CACHE_DIR
@@ -60,7 +61,7 @@ SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 SHARED_LIBRARY := $(LIB_DIR)/libwang.so
 OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
-.PHONY: all setup serial shared openmp check c-check python-check \
+.PHONY: all setup serial shared openmp check c-check python-check pages-check \
 	strict-check sanitizer-check analyzer-check valgrind-check \
 	cachegrind-check benchmark benchmark-smoke benchmark-compare \
 	benchmark-compare-smoke clean
@@ -133,7 +134,10 @@ benchmark-compare-smoke: $(BENCHMARK_BIN) shared
 		--case pipeline_unsat --samples 1 --iterations 1 \
 		--timeout-seconds 30 --c-flags "$(CFLAGS)"
 
-check: c-check openmp python-check benchmark-smoke benchmark-compare-smoke
+check: pages-check c-check openmp python-check benchmark-smoke benchmark-compare-smoke
+
+pages-check:
+	$(PYTHON) tools/check_pages.py
 
 c-check: serial $(C_TEST_BINS)
 	@set -e; \

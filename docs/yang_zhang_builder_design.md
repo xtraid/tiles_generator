@@ -1,30 +1,34 @@
 ---
 layout: page
-title: "Yang-Zhang region builder: implementation contract"
+title: "Yang–Zhang formula-to-region builder"
 permalink: /yang_zhang_builder_design/
-description: The implementation contract for constructing finite Wang regions from formulas.
+description: Data flow, geometry, ownership, and tested invariants of the implemented formula-to-region builder.
+section: Yang–Zhang reduction
+document_kind: Implementation contract
+status: Current implementation
+updated: 2026-08-21
+nav_order: 20
 ---
 
-# Yang-Zhang region builder: implementation contract
+# Yang–Zhang formula-to-region builder
 
-## Status and purpose
+## Purpose and scope
 
 This document records the implemented design contract for turning a validated
 Cubic Monotone 1-in-3 SAT instance into the colored region used by the fixed
-23-tile Yang-Zhang reduction.
+23-tile Yang–Zhang reduction.
 
-It is intentionally operational. The paper remains the source of truth for the
-mathematical construction and the fixed tileset. The implemented public headers
-and black-box tests are authoritative for API behavior; this document preserves
-the rationale, invariants, and correctness obligations behind them.
+The paper remains the source of truth for the mathematical construction and the
+fixed tileset. Implemented public headers and black-box tests are authoritative
+for API behavior; this page explains the rationale, invariants, geometry, and
+ownership obligations behind them.
 
-Implementation status as of 12 August 2026: the formula representation, public
-reduction API, validation, routing, region construction, boundary coloring,
-ownership behavior, and required builder tests are implemented. The later
-solver-level integration suite now checks complete SAT and UNSAT reductions
-against an independent Boolean oracle. Focused solver-level tests now cover the
+The formula representation, public reduction API, validation, routing, region
+construction, boundary coloring, ownership behavior, and builder tests are
+implemented. The solver-level integration suite checks complete SAT and UNSAT
+reductions against an independent Boolean oracle. Focused tests cover the
 atomic forwarder, left-anchor, right-anchor, and crossover generalized tiles.
-Whole-block solver regressions now cover the obligation in Section 11.4.
+Whole-block solver regressions cover the obligation in Section 11.4.
 
 Primary source:
 
@@ -46,7 +50,7 @@ validated canonical CM1-in-3 formula -> colored simply connected Region
                                       + exact adjacent-swap trace
 ```
 
-The builder must:
+The builder performs these stages:
 
 1. validate that the in-memory formula is inside the mathematical input
    domain required by the reduction;
@@ -57,7 +61,7 @@ The builder must:
 6. color every exposed unit edge of the region;
 7. return the region and the exact swap array transactionally.
 
-The builder must not:
+The builder does not:
 
 - parse text or repair/normalize invalid parser output;
 - solve the SAT instance;
@@ -71,7 +75,7 @@ boundary and `TILESET`. It is not stored in `Region`.
 
 ## 2. Canonical input representation
 
-Introduce the formula types in `include/wang/formula.h`:
+The canonical formula types in `include/wang/formula.h` are:
 
 ```c
 typedef struct {
@@ -89,13 +93,13 @@ typedef struct {
 
 The parser owns the clause array it allocates until the caller passes the
 formula to `cm13_formula_destroy()`. `yang_zhang_build()` borrows the formula
-and its clause storage for the duration of the call and must neither modify nor
-free them.
+and its clause storage for the duration of the call; it neither modifies nor
+frees them.
 
 `variable_count` declares the variable universe independently from the clause
 contents. Variable identities are exactly the canonical indices
 `0 .. variable_count - 1`; no separate variable object is needed while an ID
-would contain no information beyond its index. The builder must not infer,
+would contain no information beyond its index. The builder does not infer,
 deduplicate, or renumber this universe from the clauses. Clause entries refer
 directly to canonical variable indices, so target-sequence creation and domain
 validation remain linear.
@@ -130,14 +134,13 @@ No distinctness check is applied to the three entries of one clause. Cubicity
 is about total occurrences across the formula, not distinct variables within a
 clause.
 
-The occurrence-count pass is also useful work: it provides the stable
-occurrence number `0`, `1`, or `2` used while constructing target signal
-tokens. Reject a fourth occurrence immediately rather than allowing a small
-counter to wrap.
+The occurrence-count pass also provides the stable occurrence number `0`, `1`,
+or `2` used while constructing target signal tokens. Validation rejects a
+fourth occurrence before a small counter could wrap.
 
 ## 3. Public reduction result and ownership
 
-Extend `include/wang/yang_zhang.h` with:
+`include/wang/yang_zhang.h` exposes:
 
 ```c
 typedef struct {
@@ -158,10 +161,10 @@ void yang_zhang_reduction_destroy(YangZhangReduction *reduction);
 The exact array returned by `yang_zhang_permutation_build()` is transferred
 into `YangZhangReduction`; it is not copied. It is retained as a diagnostic
 trace of the reduction and as possible input to later task-plan preprocessing.
-The reference solver and independent verifier must receive only `Region` and
-must not use this logical trace.
+The reference solver and independent verifier receive only `Region` and do not
+use this logical trace.
 
-Callers initialize the output as:
+The output starts in the destroyed state:
 
 ```c
 YangZhangReduction reduction = {0};
@@ -193,11 +196,11 @@ Signal rows are zero-based. `AdjacentSwap.row == r` swaps signal rows `r` and
 w = r + 1
 ```
 
-Always describe a right-anchor chain in its nominal direction: from the
-crossover it travels **up and to the right** until it reaches the top boundary.
-In coordinates, each step decreases `y` and increases `x`. Reading the same
-chain from its top-boundary seed toward the crossover reverses the direction,
-but implementation comments should not use that reversed description.
+A right-anchor chain is described in its nominal direction: from the crossover
+it travels **up and to the right** until it reaches the top boundary. In
+coordinates, each step decreases `y` and increases `x`. Reading the same chain
+from its top-boundary seed reverses the traversal, but implementation comments
+retain the nominal direction to avoid ambiguity.
 
 A left-anchor chain rises vertically from its `L` seed on the bottom boundary.
 
@@ -241,8 +244,8 @@ a variable.
 
 ### 5.3 Swap generation
 
-Pass source and target to `yang_zhang_permutation_build()`. Do not duplicate its
-sorting algorithm in `yang_zhang.c`.
+The builder passes source and target to `yang_zhang_permutation_build()`;
+`yang_zhang.c` does not duplicate its sorting algorithm.
 
 The existing algorithm fixes the target prefix from top to bottom. For target
 position `i`, if the required token is currently at `j`, it emits:
@@ -251,11 +254,12 @@ position `i`, if the required token is currently at `j`, it emits:
 swap(j - 1), swap(j - 2), ..., swap(i)
 ```
 
-Applying all returned swaps to source must produce target exactly.
+The permutation regression verifies that applying every returned swap to
+source produces target exactly.
 
-Source, target, and occurrence counters are temporary build storage. Release
-them on both success and failure. Only the swap array is transferred to the
-public reduction result.
+Source, target, and occurrence counters are temporary build storage and are
+released on both success and failure. Only the swap array is transferred to
+the public reduction result.
 
 ## 6. Coarse layout
 
@@ -282,7 +286,7 @@ width =
   + YANG_ZHANG_CLAUSE_WIDTH
 ```
 
-Use `yang_zhang_compute_dimensions()` as the only implementation of this
+`yang_zhang_compute_dimensions()` is the single implementation of this
 arithmetic.
 
 `width` and `height` describe a dense bounding box, not a filled rectangle.
@@ -350,8 +354,9 @@ remaining cells between and around anchor chains are forced to be forwarders,
 forming the triangular forwarder areas visible in the paper. The builder does
 not annotate or pre-place those forwarders.
 
-Do not compress several swaps into consecutive runs of `L` and `R` colors.
-All anchors share the same `L`/`R` colors, so such a packing would introduce
+Each adjacent transposition retains its own block rather than being compressed
+into consecutive runs of `L` and `R` colors. All anchors share the same
+`L`/`R` colors, so such a packing would introduce
 interacting, indistinguishable anchor chains. The proven construction isolates
 every adjacent transposition in the block above. A compressed construction
 would require a separate correctness proof and is out of scope.
@@ -361,18 +366,19 @@ two-column right-forwarder band is retained.
 
 ## 8. Complete boundary-color template
 
-A finished Yang-Zhang region has a color on every exposed unit side. No
+A finished Yang–Zhang region has a color on every exposed unit side. No
 exposed side remains `COLOR_NONE`. All sides between two active cells remain
 unconstrained in `Region`; their colors are determined only by tile matching.
 
-Apply colors in this order, after the complete active mask has been built.
+Boundary colors are applied after the complete active mask has been built, in
+the order below.
 
 ### 8.1 Default exposed boundary
 
-Walk every active cell and set each side touching the outside of the bounding
-box or an inactive cell to `COLOR_B`. Sides shared by two active cells remain
-`COLOR_NONE`. At corners and staircase notches, every exposed unit side is a
-separate constraint.
+The default pass visits every active cell and sets each side touching the
+outside of the bounding box or an inactive cell to `COLOR_B`. Sides shared by
+two active cells remain `COLOR_NONE`. At corners and staircase notches, every
+exposed unit side is a separate constraint.
 
 ### 8.2 Left variable boundary
 
@@ -420,7 +426,7 @@ The resulting repeating pattern is:
 
 ### 8.4 Crossover overrides
 
-Walk the crossover blocks in swap order and overwrite only:
+The crossover-boundary pass follows swap order and overwrites only:
 
 - the top-right side of each block from `COLOR_B` to `COLOR_R`;
 - the bottom-left side of each block from `COLOR_B` to `COLOR_L`.
@@ -431,7 +437,7 @@ active cells, layout bands, or crossover blocks.
 
 ## 9. Transactional build sequence
 
-Implement `yang_zhang_build()` in this order:
+`yang_zhang_build()` follows this order:
 
 1. verify the public pointers and that the output is destroyed;
 2. validate the complete formula domain;
@@ -450,24 +456,19 @@ Implement `yang_zhang_build()` in this order:
 14. free all temporary signal/counter storage;
 15. move the temporary region and swap pointer into `out_reduction`.
 
-Use the public `Region` API. In particular, the entire active mask must be
-completed before the first `region_set_boundary()` call, because that function
-accepts only genuinely exposed sides.
+Construction uses the public `Region` API. The entire active mask is complete
+before the first `region_set_boundary()` call because that function accepts
+only genuinely exposed sides.
 
-On any failure after allocation:
+Failure cleanup releases locally owned source, target, counters, and swaps,
+destroys the temporary region, leaves `out_reduction` destroyed, and returns
+`false`. The public result is populated transactionally only after every stage
+succeeds.
 
-- free source, target, counters, and swaps if still locally owned;
-- call `region_destroy()` on the temporary region;
-- leave `out_reduction` destroyed;
-- return `false`.
+## 10. Private decomposition
 
-Do not write into the public output incrementally.
-
-## 10. Suggested private helpers
-
-Keep the public API small. The implementation may use these private helpers,
-implemented and tested through the public black-box API one responsibility at
-a time:
+The implementation keeps the public API small and decomposes construction into
+private helpers with one responsibility each:
 
 ```c
 static bool formula_is_in_reduction_domain(const Cm13Formula *formula);
@@ -503,18 +504,18 @@ static bool paint_crossover_boundaries(
 );
 ```
 
-Names may be adjusted to local style, but the responsibility boundaries and
-failure behavior should remain unchanged. Do not expose helpers solely to unit
-test them; inspect results through `yang_zhang_build()` and public `Region`
-accessors.
+These helpers remain private because their responsibility boundaries and
+failure behavior are observable through `yang_zhang_build()` and public
+`Region` accessors.
 
-## 11. Required black-box tests
+## 11. Black-box verification
 
-Add tests to `tests/c/test_yang_zhang.c` using only public APIs.
+`tests/c/test_yang_zhang.c` exercises the following fixtures through public
+APIs.
 
 ### 11.1 Minimal valid instance
 
-Use one variable and one clause `{0, 0, 0}`:
+The minimal fixture uses one variable and one clause `{0, 0, 0}` and verifies:
 
 - `height == 3`;
 - no redundant row;
@@ -531,7 +532,7 @@ unsatisfiable. The builder validates the source domain, not satisfiability.
 
 ### 11.2 Paper instance
 
-Use variables `0,1,2` and clauses:
+The paper fixture uses variables `0,1,2` and clauses:
 
 ```text
 (0,0,2)
@@ -539,7 +540,7 @@ Use variables `0,1,2` and clauses:
 (0,1,2)
 ```
 
-Assert:
+Its assertions cover:
 
 - `height == 11`;
 - the swap rows are exactly
@@ -555,7 +556,7 @@ Assert:
 
 ### 11.3 Invalid and adversarial input
 
-Cover at least:
+The invalid-input suite covers:
 
 - null API arguments;
 - zero variables;
@@ -568,14 +569,14 @@ Cover at least:
 - the clause array unchanged after both success and failure;
 - output fully destroyed after every failure path.
 
-Retain the existing deterministic stress/fuzz philosophy: generate small
-canonical arrays with a fixed PRNG seed, mutate one invariant at a time, and
-verify rejection and absence of output side effects. Run the resulting tests
-under the existing Memcheck, Cachegrind, ASan, and UBSan workflows.
+Deterministic stress and fuzz cases generate small canonical arrays with a
+fixed PRNG seed, mutate one invariant at a time, and verify rejection without
+output side effects. The same tests run under Memcheck, Cachegrind, ASan, and
+UBSan workflows.
 
 ### 11.4 Solver-level gadget coverage
 
-The public solver/verifier path now checks complete Yang-Zhang reductions
+The public solver/verifier path now checks complete Yang–Zhang reductions
 against an independent Boolean oracle. Focused black-box solver tests additionally
 establish the local generalized-tile behavior for both signals: forwarders
 preserve the signal, left and right anchors are forced by their boundary colors,
@@ -591,9 +592,9 @@ chains produced by `yang_zhang_permutation_build()`, deterministic fuzz cases,
 and large chains up to 31 rows and 96 crossover blocks. These are regression
 checks rather than a general proof. The separate two-column forwarder bands
 remain justified independently by the tile-edge exclusion argument in
-`reduction_notes.md`, Section 5.
+Section 5 of the [reduction note]({{ '/reduction_notes/' | relative_url }}).
 
-## 12. Decisions that must not be silently changed
+## 12. Stable design decisions
 
 - `variable_count` explicitly declares the variable universe; it is not
   derived from clauses.
@@ -608,8 +609,8 @@ remain justified independently by the tile-edge exclusion argument in
   stored as metadata.
 - Two explicit forwarder columns remain before and after the crossover chain.
 - The builder colors only exposed region sides, never internal cell edges.
-- The produced Yang-Zhang region has the paper's clause staircase and every
+- The produced Yang–Zhang region has the paper's clause staircase and every
   exposed unit side is colored.
-- The result owns the exact generated swap array; solver correctness must not
+- The result owns the exact generated swap array; solver correctness does not
   depend on it.
 - Construction is transactional and leaves no partial public output.

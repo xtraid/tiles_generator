@@ -10,35 +10,79 @@ description: A research software laboratory for finite Wang tilings and inspecta
 
   # Tiling Foundry
 
-  Tiling Foundry turns a mathematical reduction into an inspectable software
-  pipeline. It keeps construction, solving, verification, and measurement
-  separate so that each result can be audited rather than merely observed.
+  Tiling Foundry turns the Yang–Zhang reduction into an inspectable software
+  pipeline. Construction, solving, verification, witness correspondence, and
+  measurement remain separate so that each result can be audited rather than
+  merely observed.
 
-  [Explore the source]({{ site.repository_url }}){: .text-link }
+  [Explore the documentation](#documentation){: .text-link }
 </section>
 
-<section class="home-notes" id="notes" data-content-column markdown="1">
+{% assign architecture = site.pages | where: "section", "Architecture and correctness" | sort: "nav_order" %}
+{% assign reduction = site.pages | where: "section", "Yang–Zhang reduction" | sort: "nav_order" %}
+{% assign optimization = site.pages | where: "section", "Solver optimization" | sort: "nav_order" %}
+{% assign comparisons = site.pages | where: "section", "Cross-engine benchmarks" | sort: "nav_order" %}
+{% assign historical = site.pages | where: "section", "Historical material" | sort: "nav_order" %}
+
+<section class="home-index" id="documentation" data-content-column markdown="1">
   <div class="section-heading">
-    <p class="eyebrow">Field notes</p>
-    <h2>Research log</h2>
+    <p class="eyebrow">Start here</p>
+    <h2>Architecture and correctness</h2>
   </div>
 
-  {% include post-list.html %}
+  These documents explain the software boundaries that keep the reduction,
+  solver, independent verification, and Boolean–Wang witness correspondence
+  auditable.
+
+  {% include document-list.html documents=architecture %}
 </section>
 
-<section class="home-index" data-content-column markdown="1">
+<section class="home-index" id="yang-zhang-reduction" data-content-column markdown="1">
   <div class="section-heading">
-    <p class="eyebrow">Working record</p>
-    <h2>Technical archive</h2>
+    <p class="eyebrow">Construction</p>
+    <h2>Yang–Zhang reduction</h2>
   </div>
 
-  The repository also publishes its implementation contracts and measured
-  solver notes as first-class project documents.
+  Read these pages for the mathematical conventions, region geometry,
+  implementation contract, and primary sources behind the fixed 23-tile
+  construction.
 
-  - [Development principles]({{ '/development_principles/' | relative_url }})
-  - [Yang–Zhang region builder]({{ '/yang_zhang_builder_design/' | relative_url }})
-  - [Serial solver implementation guide]({{ '/serial_solver_implementation_guide/' | relative_url }})
-  - [Solver performance scope]({{ '/solver_performance_scope/' | relative_url }})
-  - [Reference profile]({{ '/solver_reference_profile_2026-08-17/' | relative_url }})
-  - [Project references]({{ '/references/' | relative_url }})
+  {% include document-list.html documents=reduction %}
+</section>
+
+<section class="home-index" id="solver-optimization" data-content-column markdown="1">
+  <div class="section-heading">
+    <p class="eyebrow">Measured mechanisms</p>
+    <h2>Solver optimization</h2>
+  </div>
+
+  The optimization record starts from the retained reference path and adds one
+  measured mechanism at a time. Each report preserves its corpus, environment,
+  direct work counters, timing method, and limitations.
+
+  {% include document-list.html documents=optimization %}
+</section>
+
+<section class="home-index" id="cross-engine-benchmarks" data-content-column markdown="1">
+  <div class="section-heading">
+    <p class="eyebrow">Native C / Z3</p>
+    <h2>Cross-engine benchmarks</h2>
+  </div>
+
+  The comparison protocol distinguishes solving the same prepared Wang region
+  from end-to-end decisions that begin with the same formula file.
+
+  {% include document-list.html documents=comparisons %}
+</section>
+
+<section class="home-index" id="historical-material" data-content-column markdown="1">
+  <div class="section-heading">
+    <p class="eyebrow">Design history</p>
+    <h2>Historical material</h2>
+  </div>
+
+  Earlier proposals are retained to explain the project’s design trajectory.
+  They are not current API contracts.
+
+  {% include document-list.html documents=historical %}
 </section>

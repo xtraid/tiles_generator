@@ -106,7 +106,7 @@ The intended end-to-end pipeline is:
 Cubic Monotone 1-in-3 SAT formula
         |
         v
-Yang-Zhang finite Wang region
+Yang–Zhang finite Wang region
         |
         +-------------------+
         |                   |
@@ -188,7 +188,7 @@ Implemented and tested as of 21 August 2026:
 - optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
   and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
-  oracles, large-region stress cases, and end-to-end Yang-Zhang SAT/UNSAT
+  oracles, large-region stress cases, and end-to-end Yang–Zhang SAT/UNSAT
   checks;
 - golden coverage of all 23 `(N,E,S,W)` tile tuples and focused solver-level
   tests for forwarder, anchor, atomic crossover, and whole crossover-block
@@ -288,7 +288,7 @@ make benchmark-compare
 ```
 
 `make benchmark` builds the portable `-O2` harness and runs the reference path
-over the versioned generic and Yang-Zhang corpus in separate timing,
+over the versioned generic and Yang–Zhang corpus in separate timing,
 single-solve RSS, and metrics passes. Individual cases accept
 `--solver reference|optimized`; reference is the default. Results are
 host-specific evidence, not CI pass/fail thresholds.
@@ -305,7 +305,7 @@ case once; the extended presets and JSON Lines capture command are documented in
 ```text
 include/wang/    public C APIs
 src/core/        tiles and region primitives
-src/builder/     Yang-Zhang reduction components
+src/builder/     Yang–Zhang reduction components
 src/crosscheck/  Boolean/Wang witness bridge above solver and verifier
 src/solver/      serial solver
 src/parallel/    OpenMP path
@@ -328,77 +328,26 @@ than paths: the Boolean oracle consumes `Formula`, while the Wang oracle
 consumes `Region + TILESET`. Both witness checkers are pure Python and
 independent of Z3. The cross-check layer alone coordinates those components
 with scoped native lifetimes; Python does not duplicate parsing or the
-Yang-Zhang reduction.
+Yang–Zhang reduction.
 
 ## Documentation
 
-- [GitHub Pages — project site & research notes](https://xtraid.github.io/tiling-foundry/)
+The [GitHub Pages documentation](https://xtraid.github.io/tiling-foundry/)
+organizes the technical material by reader interest:
 
+- **Architecture and correctness** covers module ownership, the serial solver,
+  independent verification, and Boolean–Wang witness correspondence.
+- **Yang–Zhang reduction** covers geometry, formula-to-region construction,
+  proof obligations, and primary references.
+- **Solver optimization** separates the current methodology from dated,
+  reproducible mechanism reports.
+- **Cross-engine benchmarks** documents the native/Z3 protocol and its recorded
+  smoke baseline without treating unlike solver problems as equivalent.
+- **Historical material** preserves the initial architecture specification as
+  superseded context; current headers, tests, and public pages are authoritative.
 
-- [`docs/development_principles.md`](docs/development_principles.md) records the
-  practical rules used to keep module ownership clear and avoid premature
-  abstractions as the implementation grows.
-- [`docs/reduction_notes.md`](docs/reduction_notes.md) is the living record of
-  reduction conventions already adopted by the implementation and of their
-  explicit correctness obligations.
-- [`docs/yang_zhang_builder_design.md`](docs/yang_zhang_builder_design.md) is
-  the implementation contract for the formula-to-region builder, including
-  ownership, signal routing, crossover orientation, offsets, and the complete
-  boundary-color template.
-- [`docs/serial_solver_implementation_guide.md`](docs/serial_solver_implementation_guide.md)
-  records the implemented contract for the independent verifier,
-  deterministic serial solver, optional metrics, opt-in UNSAT diagnostic
-  snapshot, and mmap leaf trace.
-- [`docs/solver_performance_scope.md`](docs/solver_performance_scope.md)
-  records the accepted guardrails for profiling and for a reference path plus
-  an OpenMP-capable performance path within the same generic Wang solver. It
-  distinguishes target decisions from behavior already implemented.
-- [`docs/solver_reference_profile_2026-08-17.md`](docs/solver_reference_profile_2026-08-17.md)
-  records the first reproducible `-O2` reference baseline, corpus, metrics,
-  Callgrind attribution, limitations, and evidence-gated optimization order.
-- [`docs/solver_dynamic_stack_2026-08-17.md`](docs/solver_dynamic_stack_2026-08-17.md)
-  records the first isolated optimized mechanism, its direct allocation
-  reduction, deep-growth counterexample, and timing gate.
-- [`docs/solver_initial_trail_2026-08-17.md`](docs/solver_initial_trail_2026-08-17.md)
-  records removal of the non-rollbackable initial trail from the optimized
-  path, including direct writes/allocation, RSS, timing, and rollback gates.
-- [`docs/solver_sat_ownership_2026-08-20.md`](docs/solver_sat_ownership_2026-08-20.md)
-  records elimination of the optimized path's redundant final SAT allocation
-  and copy, including result lifetime, diagnostic coexistence, and timing/RSS
-  gates.
-- [`docs/solver_byte_support_2026-08-20.md`](docs/solver_byte_support_2026-08-20.md)
-  records the optimized byte-wise support table, exhaustive entry validation,
-  direct work counters, rejected runtime validation, and timing gates.
-- [`docs/solver_queue_trail_profile_2026-08-20.md`](docs/solver_queue_trail_profile_2026-08-20.md)
-  records the post-T67 queue/trail counters and profiler evidence that selects
-  queue deduplication as the next isolated performance packet.
-- [`docs/solver_queue_dedup_2026-08-20.md`](docs/solver_queue_dedup_2026-08-20.md)
-  records the packed optimized pending index, direct queue/arc reductions,
-  alternating timing and RSS gates, and post-change Callgrind/Cachegrind
-  attribution.
-- [`docs/solver_comparison_benchmark.md`](docs/solver_comparison_benchmark.md)
-  defines the fixed cross-engine corpus, the two comparable timing scopes,
-  fresh-process execution, timeout handling, JSON Lines schema, and
-  interpretation limits for native and Z3 measurements.
-- [`docs/solver_comparison_smoke_2026-08-21.md`](docs/solver_comparison_smoke_2026-08-21.md)
-  records the first seven-sample CPU-pinned baseline, complete ranges and RSS,
-  the shallow-UNSAT explanation, and the six-variable Wang Z3 timeout pilot.
-- [`docs/designs/2026-08-21-witness-extension-design.md`](docs/designs/2026-08-21-witness-extension-design.md)
-  records the implemented contract for exact Boolean/Wang witness extension,
-  extraction, ownership, and independent verification.
-- [`docs/plans/2026-08-21-witness-extension.md`](docs/plans/2026-08-21-witness-extension.md)
-  records the corresponding test-first implementation and verification work.
-- [`docs/references.md`](docs/references.md) records authoritative paper links,
-  their role in the project, and when a PDF may be copied into the repository.
-- [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)
-  is the initial, future-facing architecture specification. Its proposed data
-  structures are design sketches, not normative public APIs. Current headers
-  and tests are authoritative for implemented behavior.
-
-This separation is intentional: the README describes the project and its real
-status, the reduction notes record mathematical/geometry conventions, and the
-architecture PDF preserves the broader destination without forcing premature
-abstractions into the code.
+Development plans and the post template remain versioned under `docs/` but are
+excluded from the published site.
 
 ## Legacy policy
 

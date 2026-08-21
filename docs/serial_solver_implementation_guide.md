@@ -1,188 +1,113 @@
 ---
 layout: page
-title: "Technical guide: verifier, serial solver, and leaf trace"
+title: Serial Wang solver and independent verification
 permalink: /serial_solver_implementation_guide/
-description: An implementation guide to verification, serial Wang search, diagnostics, and leaf tracing.
+description: Domain propagation, deterministic search, ownership, diagnostics, and the independent verifier used by both native solver paths.
+section: Architecture and correctness
+document_kind: Technical reference
+status: Current implementation
+updated: 2026-08-21
+nav_order: 20
 ---
 
-# Technical guide: verifier, serial solver, and leaf trace
+# Serial Wang solver and independent verification
 
-Implementation status as of 21 August 2026: this guide has been implemented,
-including the later shared initial-domain extension described below.
-The public headers and tests are authoritative where they differ from an
-earlier prospective detail below. The document remains the technical contract
-and maintenance handoff for the module.
+The native reference and optimized entry points share one Wang-search core and
+the same public status, ownership, diagnostic, and initial-domain contracts.
+This page describes that core, the independent verifier applied to every SAT
+result, and the optional failed-leaf diagnostics. Public headers and regression
+tests remain authoritative for exact ABI behavior.
 
-## 1. Scope
+## 1. Scope and dependency boundary
 
-This guide is an operational handoff for implementing the project's next block
-without having to reconstruct the architectural decisions from its history.
+The subsystem implements a finite-region Wang decision procedure over the
+canonical 23-tile `TILESET`. It combines 32-bit cell domains, boundary
+restriction, local arc propagation, row-major MRV selection, iterative DFS,
+and an undo trail. The same core supplies a deliberately direct reference path
+and a path with measured private optimizations.
 
-The work includes:
+The solver receives only `Region`, solver options, and caller-owned output
+storage. Formula clauses, adjacent-swap traces, generalized-gadget labels, Z3,
+rendering, and Yang–Zhang construction data do not enter its decision state.
+Tiles may be reused without limit, while rotations and reflections remain
+forbidden by the fixed tileset model.
 
-1. an independent verifier for complete tilings;
-2. a deterministic serial solver based on bitmask domains;
-3. local propagation, MRV, and rollback through an undo trail;
-4. optional metrics;
-5. a renderable snapshot that is always returned for `SAT` and available for
-   `UNSAT` only through an explicit diagnostic flag;
-6. an optional binary trace of all failed leaves, written through `mmap` to a
-   file with a known maximum capacity and truncated to its actual size on
-   completion;
-7. optional borrowed dense root domains shared by the reference and optimized
-   entry points.
+The relevant public boundaries are:
 
-Do not implement in this block:
+| Header | Public responsibility |
+| --- | --- |
+| `wang/tile.h` | `TileId`, `TILE_NONE`, directions, colors, `TILESET`, and direct edge matching |
+| `wang/region.h` | Validated dense row-major geometry and exposed boundary colors |
+| `wang/verify.h` | Independent validation of a complete dense tiling |
+| `wang/solver.h` | Domains, options, statuses, result ownership, metrics, and both solve entry points |
 
-- a formula parser;
-- OpenMP or other forms of parallelism;
-- memoization, skip lists, clause learning, or backjumping;
-- Z3, JSON, or rendering;
-- a compact formal certificate of unsatisfiability;
-- changes to the Yang-Zhang builder or the tileset, except for corrections
-  demonstrated by independent tests.
+The implementation lives primarily in `src/verify/verify_tiling.c`,
+`src/solver/solver_serial.c`, `src/solver/byte_support_table.c`, and
+`src/solver/failed_leaf_trace.c`. It has no mutable global search state.
 
-The solver receives only a `Region`. The 23 tiles are always read from the
-canonical `TILESET` in `src/core/tile.c`; a tileset is not passed as a
-parameter, and compatibility information is not duplicated manually.
+## 2. Independent tiling verifier
 
-## 2. Repository status and constraints
+`wang_verify_tiling()` consumes a validated `Region` and a dense array parallel
+to `Region.cells`:
 
-The following implemented APIs are authoritative:
+```c
+WangVerifyStatus wang_verify_tiling(
+    const Region *region,
+    const TileId *tiles,
+    size_t tile_count
+);
+```
 
-- `include/wang/tile.h`: `TileId`, `ColorId`, directions, colors, and 23 tiles;
-- `include/wang/region.h`: dense row-major geometry, active mask, and
-  boundaries;
-- `include/wang/yang_zhang.h`: formula-to-region construction;
-- `wang_tiles_match()`: reference implementation for oriented local matching.
+`TILE_NONE` is defined once in `wang/tile.h`. Active cells contain a tile ID
+strictly below `TILE_COUNT`; inactive cells contain `TILE_NONE`. The dense
+length equals `region->cell_count`.
 
-Files implemented by this block:
+The verifier distinguishes invalid arguments, invalid region storage, an
+incorrect dense length, incomplete active cells, invalid tile IDs, assignments
+to inactive cells, boundary mismatches, and adjacency mismatches. It reads
+edges directly from `TILESET`, checks every exposed boundary color other than
+`COLOR_NONE`, and visits east and south adjacencies once each. It does not call
+the solver or consume its compatibility caches, so successful verification is
+independent of the search mechanism that produced the tiling.
 
-- `include/wang/verify.h`;
-- `src/verify/verify_tiling.c`;
-- `include/wang/solver.h`;
-- `src/solver/solver_serial.c`;
-- `src/solver/failed_leaf_trace.c` and its private header.
+## 3. Public solver API
 
-Tests added:
+### 3.1 Tile domains and status
 
-- `tests/c/test_verify.c`;
-- `tests/c/test_solver.c`;
-- `tests/c/test_solver_stress.c`;
-- `tests/c/test_solver_yang_zhang.c`.
-
-The `Makefile` uses wildcards for C tests and already includes the verifier and
-solver in the serial library. Do not add a parallel build system.
-
-Design rules to preserve:
-
-- `TILESET` is the single source of truth for edges and colors;
-- the verifier does not use solver state or caches;
-- the solver does not read `AdjacentSwap` or gadget metadata;
-- tiles may be reused without limit;
-- rotations and reflections are not allowed;
-- there is no mutable global state;
-- every public output is constructed transactionally.
-
-## 3. Domain representation
-
-`TILE_COUNT == 23`, so a `uint32_t` contains the complete domain of a cell:
+The public domain containing every atomic tile ID is declared in
+`wang/solver.h`:
 
 ```c
 #define WANG_DOMAIN_ALL \
     ((UINT32_C(1) << TILE_COUNT) - UINT32_C(1))
 ```
 
-Conventions:
+For an active cell, a set bit permits the corresponding `TILESET` entry, a
+singleton is a resolved placement, and zero is a conflict. Inactive cells use
+zero as their normal dense-domain value.
 
-- bit `t` set: `TILESET[t]` is still allowed;
-- zero domain on an active cell: conflict;
-- exactly one bit: placed/forced tile;
-- multiple bits: unresolved cell;
-- zero domain on an inactive cell: normal value, not a conflict.
-
-Do not introduce an `assignment` array: for active cells, the assignment can
-be derived from singleton domains.
-
-## 4. Verifier API
-
-Define the following in `include/wang/verify.h`:
+The status enum keeps malformed or failed execution separate from a valid
+negative decision:
 
 ```c
-#ifndef WANG_VERIFY_H
-#define WANG_VERIFY_H
-
-#include <stddef.h>
-
-#include "wang/region.h"
-#include "wang/tile.h"
-
-#define TILE_NONE ((TileId)UINT8_MAX)
-
-typedef enum {
-    WANG_VERIFY_VALID = 0,
-    WANG_VERIFY_INVALID_ARGUMENT,
-    WANG_VERIFY_INVALID_REGION,
-    WANG_VERIFY_INVALID_LENGTH,
-    WANG_VERIFY_INCOMPLETE,
-    WANG_VERIFY_INVALID_TILE_ID,
-    WANG_VERIFY_INACTIVE_ASSIGNED,
-    WANG_VERIFY_BOUNDARY_MISMATCH,
-    WANG_VERIFY_ADJACENCY_MISMATCH
-} WangVerifyStatus;
-
-WangVerifyStatus wang_verify_tiling(
-    const Region *region,
-    const TileId *tiles,
-    size_t tile_count
-);
-
-#endif /* WANG_VERIFY_H */
-```
-
-If another module needs `TILE_NONE`, moving the macro to `tile.h` is
-acceptable; there must still be exactly one definition.
-
-The tiling is a dense array parallel to `Region.cells`:
-
-- exact length `width * height`;
-- active cell: `TileId < TILE_COUNT`;
-- inactive cell: must be `TILE_NONE`.
-
-The verifier must:
-
-1. validate pointers, dimensions, and the `width * height` product;
-2. reject out-of-range colors;
-3. reject boundary constraints on inactive cells or on edges touching an
-   active cell;
-4. check every exposed constraint other than `COLOR_NONE`;
-5. compare the edges of adjacent tiles directly;
-6. visit only `E` and `S` to avoid checking each adjacency twice.
-
-Do not call solver functions or use `compat`. The verifier may read
-`TILESET[a].edge[d]` and `TILESET[b].edge[opposite(d)]` directly.
-
-## 5. Public solver API
-
-Define an API similar to the following in `include/wang/solver.h`. The names
-are normative unless a concrete implementation reason requires a change.
-
-```c
-#ifndef WANG_SOLVER_H
-#define WANG_SOLVER_H
-
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-
-#include "wang/region.h"
-
 typedef enum {
     WANG_SOLVE_ERROR = -1,
     WANG_SOLVE_UNSAT = 0,
     WANG_SOLVE_SAT = 1
 } WangSolveStatus;
+```
 
+An invalid region, invalid option, allocation failure, trace failure, or
+rejected internal SAT witness produces `WANG_SOLVE_ERROR`. A well-formed root
+restriction or propagated/search branch that has no extension produces
+`WANG_SOLVE_UNSAT`.
+
+### 3.2 Options
+
+`WangSolverOptions` contains flags, optional failed-leaf trace configuration,
+and optional borrowed initial domains:
+
+```c
 enum {
     WANG_SOLVE_COLLECT_METRICS = UINT32_C(1) << 0,
     WANG_SOLVE_TRACE_FAILED_LEAVES = UINT32_C(1) << 1,
@@ -190,683 +115,348 @@ enum {
 };
 
 typedef struct {
-    uint64_t dfs_nodes;
-    uint64_t decisions;
-    uint64_t backtracks;
-    uint64_t failed_leaves;
-    uint64_t domain_reductions;
-    uint64_t propagated_arcs;
-    uint64_t support_tile_visits;
-    uint64_t support_byte_lookups;
-    size_t support_table_bytes;
-    uint64_t mrv_cells_scanned;
-    uint64_t initial_trail_writes;
-    uint64_t search_trail_writes;
-    uint64_t initial_trail_rewrites;
-    uint64_t search_trail_rewrites;
-    size_t trail_peak;
-    size_t trail_capacity_peak;
-    size_t trail_bytes_peak;
-    uint64_t enqueue_attempts;
-    uint64_t duplicate_enqueue_attempts;
-    size_t queue_dedup_index_bytes;
-    size_t queue_peak;
-    size_t queue_unique_peak;
-    size_t dfs_stack_capacity_peak;
-    size_t dfs_stack_bytes_peak;
-    size_t max_depth;
-    size_t sat_result_copy_bytes;
-} WangSolverMetrics;
-
-typedef struct {
     uint32_t flags;
-
-    /* Required only with WANG_SOLVE_TRACE_FAILED_LEAVES. */
     const char *failed_leaf_path;
     size_t failed_leaf_capacity;
-
-    /* Optional borrowed dense row-major root domains. */
     const uint32_t *initial_domains;
     size_t initial_domain_count;
 } WangSolverOptions;
+```
 
-typedef struct {
-    /*
-     * Dense row-major snapshot, one uint32_t per RegionCell.
-     * SAT: all active domains are singletons.
-     * UNSAT with WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT: best failed leaf
-     * according to the rule in Section 10. Without the flag: NULL and a
-     * zero count.
-     */
-    uint32_t *domains;
-    size_t domain_count;
+A null options pointer has the same meaning as a zero-initialized options
+object. Unknown flag bits are invalid. Trace capture requires a nonempty path
+and a positive capacity.
 
-    /* SIZE_MAX for SAT; index of the zero-domain cell for UNSAT. */
-    size_t conflict_cell;
+Initial domains are absent exactly as `NULL/0`. When present, the pointer is
+borrowed and immutable for the duration of the call, and the count equals
+`region->cell_count`. Inactive entries are zero. Active entries use only bits
+in `WANG_DOMAIN_ALL`; `WANG_DOMAIN_ALL` adds no restriction, a nonzero subset
+restricts candidates, and zero is a well-formed contradictory constraint.
+Complete validation of the dense array precedes interpretation of any active
+zero, so a malformed later entry still produces `ERROR` rather than being
+hidden by an earlier contradiction.
 
-    size_t resolved_count;
-    size_t decision_depth;
+### 3.3 Entry points
 
-    size_t traced_leaf_count;
-    bool trace_truncated;
+Both public functions have the same input, validation, diagnostic, and result
+contract:
 
-    /* All zero unless WANG_SOLVE_COLLECT_METRICS is requested. */
-    WangSolverMetrics metrics;
-} WangSolveResult;
-
+```c
 WangSolveStatus wang_solve_serial(
     const Region *region,
     const WangSolverOptions *options,
     WangSolveResult *out_result
 );
 
+WangSolveStatus wang_solve_optimized(
+    const Region *region,
+    const WangSolverOptions *options,
+    WangSolveResult *out_result
+);
+
 void wang_solve_result_destroy(WangSolveResult *result);
-
-#endif /* WANG_SOLVER_H */
 ```
 
-Contract:
+`out_result` is zero-initialized or previously passed to
+`wang_solve_result_destroy()`. A conforming output remains destroyed on
+`ERROR`. Passing a result that already owns domains is an API violation; it is
+rejected unchanged rather than overwritten or leaked. Destruction accepts
+`NULL`, frees an owned domain array, and resets every field.
 
-- `options == NULL` is equivalent to zero flags;
-- unknown flags are an error;
-- initial domains are absent only as `NULL/0` and present only as a nonnull
-  pointer with `initial_domain_count == region->cell_count`;
-- the array is borrowed and immutable for the solve call: inactive entries are
-  zero, active entries use only `WANG_DOMAIN_ALL` bits, an active zero is a
-  legal contradiction, and `WANG_DOMAIN_ALL` adds no restriction;
-- `out_result` must be zero-initialized or previously destroyed;
-- on `SAT` and `UNSAT`, the caller owns `out_result->domains`;
-- with a conforming destroyed output, every `ERROR` leaves it destroyed; an
-  already-owned output is itself invalid and is rejected unchanged;
-- `wang_solve_result_destroy()` accepts `NULL`, frees the snapshot, and zeros
-  every field;
-- the solver does not create a file unless the trace flag is present;
-- with the trace flag, a nonempty path and capacity greater than zero are
-  required;
-- the trace path is an explicit output: the solver creates or truncates it.
+### 3.4 Result ownership
 
-## 6. Private solver structures
+`WangSolveResult` publishes dense domains, best-leaf metadata, trace metadata,
+and optional metrics. Domain ownership depends on the successful status and
+snapshot flag:
 
-Everything that follows must remain in `solver_serial.c`.
+| Result | `domains` | `domain_count` | Ownership |
+| --- | --- | ---: | --- |
+| `SAT` | Complete singleton domains for active cells; zero for inactive cells | `region->cell_count` | Caller-owned |
+| `UNSAT` with `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` | Dense best failed leaf | `region->cell_count` | Caller-owned |
+| `UNSAT` without snapshot capture | `NULL` | `0` | No domain allocation is returned |
+| `ERROR` with conforming output | `NULL` | `0` | Output remains destroyed |
 
-```c
-typedef struct {
-    uint32_t edge_mask[DIR_COUNT][COLOR_COUNT];
-    uint32_t compat[DIR_COUNT][TILE_COUNT];
-} SolverTables;
+`conflict_cell` is `SIZE_MAX` for SAT and identifies the zero-domain active
+cell selected for the best failed leaf on UNSAT. `resolved_count` and
+`decision_depth` describe that selected leaf even when no dense UNSAT snapshot
+was requested. A region with no active cells is SAT and returns a dense array
+of zeros.
 
-typedef struct {
-    size_t cell_index;
-    uint32_t old_domain;
-} TrailEntry;
+## 4. Compatibility tables and domain initialization
 
-typedef struct {
-    size_t cell_index;
-    uint32_t candidates;
-    size_t entry_mark;
-} SearchFrame;
-
-typedef struct {
-    const Region *region;
-    SolverTables tables;
-
-    uint32_t *domains;
-    uint8_t *neighbor_mask;
-    size_t cell_count;
-    size_t active_count;
-    size_t resolved_count;
-
-    TrailEntry *trail;
-    size_t trail_count;
-    size_t trail_capacity;
-
-    size_t *queue;
-    size_t queue_capacity;
-
-    uint32_t *best_snapshot;
-    size_t best_resolved_count;
-    size_t best_depth;
-    size_t best_conflict_cell;
-    bool has_best_leaf;
-
-    bool collect_metrics;
-    bool capture_unsat_snapshot;
-    WangSolverMetrics metrics;
-
-    /* private mmap writer, if enabled */
-} SolverState;
-```
-
-The conceptual separation to preserve is:
-
-- `SolverTables`: immutable derived data that may be shared in the future;
-- `SolverState`: mutable data private to an individual branch/worker.
-
-Do not use skip lists. The trail is a contiguous stack, and the initial MRV is
-a cache-friendly linear scan.
-
-## 7. Private compatibility tables
-
-Build `edge_mask` first:
+The shared core derives two private tables from the canonical tileset:
 
 ```c
 edge_mask[d][color] |= UINT32_C(1) << tile_id;
-```
 
-Then derive:
-
-```c
 compat[d][tile_id] =
     edge_mask[opposite(d)][TILESET[tile_id].edge[d]];
 ```
 
-Meaning:
+`edge_mask[d][c]` contains tiles exposing color `c` in direction `d`.
+`compat[d][t]` contains tiles allowed in the neighbor located in direction `d`
+from tile `t`. An exhaustive regression compares every cached relation with
+`wang_tiles_match()`, which keeps the cache derived rather than authoritative.
 
-- `edge_mask[d][c]`: tiles with color `c` on edge `d`;
-- `compat[d][t]`: tiles allowed in the cell located in direction `d` from a
-  cell containing `t`.
-
-The tables are caches, not sources of truth. Add an indirect exhaustive test
-or a private assertion/test function that establishes the following
-equivalence for every `d`, `a`, and `b`:
+Region validation and complete initial-domain validation happen before solver
+state is published. Each active domain begins as the supplied root mask or
+`WANG_DOMAIN_ALL`, then intersects all exposed boundary masks:
 
 ```text
-bit b in compat[d][a]  <=>  wang_tiles_match(&TILESET[a], d, &TILESET[b])
+WANG_DOMAIN_ALL
+    & optional caller root domain
+    & north/east/south/west exposed-boundary masks
 ```
 
-Do not export these tables in the public header.
+The state also records a four-bit active-neighbor mask per cell. Singleton
+domains contribute to `resolved_count`. A legal mask that becomes empty after
+boundary restriction or propagation is UNSAT; high bits, nonzero inactive
+entries, and inconsistent pointer/count pairs are ERROR. Root restrictions and
+boundary restrictions establish the search root and therefore do not represent
+rollbackable decisions.
 
-## 8. State initialization
+Initial propagation begins with all active cells in the queue and continues to
+a fixed point before DFS. The reference path records initial propagation in its
+trail and then discards that prefix at the fixed point. The optimized path
+omits these non-consumable undo entries entirely. Both enter search from the
+same domains.
 
-Validate the `Region` before allocating the state:
+## 5. Propagation
 
-- nonnull region pointer and `cells`;
-- positive dimensions;
-- overflow-free product and allocation sizes;
-- colors equal to `COLOR_NONE` or satisfying `< COLOR_COUNT`;
-- no boundary color on inactive cells;
-- no boundary color on an edge with an active neighbor.
-
-Validate the complete optional initial-domain array before allocating solver
-state or interpreting an empty active mask as UNSAT. A malformed later entry
-must therefore produce ERROR even when an earlier active entry is zero.
-
-For each cell:
-
-1. if inactive, set `domain = 0` and `neighbor_mask = 0`;
-2. if active, start from the supplied root mask or `WANG_DOMAIN_ALL` when the
-   option is absent;
-3. build the four bits of `neighbor_mask`;
-4. for each exposed edge with color `c != COLOR_NONE`:
-
-```c
-domain &= tables.edge_mask[dir][c];
-```
-
-5. count the cell in `resolved_count` if the domain is a singleton;
-6. if the domain becomes zero, there is a failed leaf at depth zero.
-
-Supplied root masks and boundary masks are independent restrictions whose
-intersection defines the initial domain. Root masks do not bypass boundary or
-adjacency checks and do not create rollback entries. A legal mask that becomes
-empty after boundary intersection or propagation is UNSAT, while invalid bits,
-wrong dense storage, or a nonzero inactive entry are ERROR.
-
-A valid region with no active cells is `SAT`: its snapshot contains only
-zeros, but no conflict exists because no cell is active.
-
-After applying the boundary masks, perform initial propagation to a fixed
-point. Recording changes in the trail and then setting `trail_count = 0`
-without a rollback is allowed: the resulting state becomes the DFS root.
-
-## 9. Undo trail
-
-Every actual domain change must:
-
-1. ensure capacity in the `trail` vector;
-2. append `{ cell_index, old_domain }`;
-3. update `resolved_count` by comparing the old and new cardinalities;
-4. write the new domain;
-5. update metrics and peaks, if enabled.
-
-Before trying a candidate:
-
-```c
-const size_t mark = state->trail_count;
-```
-
-Rollback walks the trail backward to `mark`. It must also update
-`resolved_count` by comparing the current domain with the restored domain.
-
-Recording the same cell multiple times is correct: reverse rollback recreates
-every intermediate state exactly. Do not deduplicate the trail.
-
-Do not copy the entire domain array at every decision.
-
-## 10. Propagation and leaf snapshots
-
-Use a contiguous queue of indices. The reference baseline allows duplicates.
-The measured optimized path owns a packed pending-cell bitset and suppresses a
-push when the corresponding cell already has an unconsumed occurrence. It
-clears the bit before processing the pop, so a later restriction may enqueue
-the cell again, and drains remaining bits on every conflict or error exit.
-Root conflicts and active graphs with no arcs allocate no pending index.
-
-When the domain of cell `i` changes, for each active neighbor `j` in direction
-`d`:
+When cell `i` changes, propagation computes the union of compatible neighbor
+tiles and intersects it with each active neighbor `j`:
 
 ```c
 uint32_t supported = 0;
 uint32_t candidates = domains[i];
 
 while (candidates != 0) {
-    const TileId tile = first_set_bit(candidates);
-    supported |= tables.compat[d][tile];
-    candidates &= candidates - 1;
+    const TileId tile = first_set_tile(candidates);
+    supported |= compat[d][tile];
+    candidates &= candidates - UINT32_C(1);
 }
 
 const uint32_t new_domain = domains[j] & supported;
 ```
 
-This loop remains the reference behavior. The optimized path derives a private
-`compat[direction][byte][value]` table with three 8-bit chunks for the 23-bit
-domain. It ORs one table entry for each nonzero chunk, preserving the exact
-union above without visiting every set tile. The table is allocated, built,
-owned, and freed only by the optimized solve; it is never shared mutable state.
-Its 3,072 `uint32_t` entries occupy 12,288 bytes.
+The reference path executes this set-tile loop directly. The optimized path
+uses a private `4 x 3 x 256` byte-support table derived from `compat`; its 3,072
+`uint32_t` entries occupy 12,288 bytes and produce the same union from the
+three bytes of the 23-bit domain.
 
-If the domain changes, save it to the trail and enqueue `j`. If it becomes
-zero, keep the zero in the state, record the leaf before rollback, and report
-a conflict.
+Both paths use a contiguous FIFO. The reference queue accepts duplicate
+pending cells. The optimized queue owns a packed cell-index bitset and
+suppresses an enqueue when that cell already has an unconsumed occurrence. A
+pop clears the bit before propagation, allowing a later domain change to
+enqueue the cell again. Conflict and error exits drain the derived pending
+state. Root conflicts and active graphs without arcs allocate no deduplication
+index.
 
-The solver must always retain the metadata for the best leaf, even when the
-file trace and dense snapshot are disabled. The deterministic preference order
-is:
+Every effective domain reduction updates `resolved_count`. A zero result stays
+in the state long enough to identify and record the failed leaf before
+rollback.
 
-1. higher `resolved_count`;
-2. at equal counts, greater decision depth;
-3. if still tied, retain the first one encountered.
+## 6. Trail, MRV, and iterative DFS
 
-Always save `conflict_cell`, depth, and the number of resolved cells. Only with
-`WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT`, allocate `best_snapshot` for the first
-best leaf and copy the entire domain array into it. The mmap trace and snapshot
-capture remain independent options.
+The undo trail is a contiguous vector of `(cell_index, old_domain)` entries.
+Each search-time reduction appends the previous value before changing the
+domain. Rollback walks entries in reverse to a saved marker and updates
+`resolved_count` from the current and restored cardinalities. Multiple entries
+for the same cell are intentional because they reproduce every intermediate
+state exactly.
 
-This UNSAT snapshot is diagnostic and renderable; it is not a formal proof of
-unsatisfiability.
+MRV selection scans active cells in row-major order and chooses the smallest
+nonsingleton domain. Ties retain the lowest dense index, candidates are tried
+in ascending tile-ID order, and propagation visits neighbors in `N`, `E`, `S`,
+`W` order. These rules make each path deterministic for a fixed mechanism set.
 
-## 11. Iterative DFS and MRV
-
-The baseline must be deterministic:
-
-- choose an active cell with a nonsingleton domain of minimum cardinality;
-- on ties, choose the smallest row-major index;
-- try `TileId` values in ascending order;
-- visit neighbors in `N`, `E`, `S`, `W` order.
-
-A linear MRV scan is intentional: the domains are contiguous, and reading them
-is cache-friendly. Do not maintain a mutable ordered structure. If profiling
-shows that MRV dominates execution time, the first alternative to try is a
-24-bucket structure, not a skip list.
-
-Traversal uses an explicit heap-allocated stack, with at most one frame per
-active cell. This prevents a large region from exhausting the process stack. A
-frame contains the node's MRV cell, the candidates not yet tried, and the trail
-marker preceding the branch that opened the node.
-
-DFS outline:
+DFS uses a heap-allocated stack rather than the process stack. A frame holds
+the chosen cell, remaining candidates, and the trail position before the
+parent branch entered the node:
 
 ```text
 count the root node
-if everything is resolved: SAT
+if all active cells are singleton: SAT
 push the root MRV frame
 
-while the stack is not empty:
-    frame = top of stack
-
-    if no candidates remain:
-        pop the frame
-        if it was the root: UNSAT
-        rollback(frame.entry_mark)
-        count the parent branch backtrack
-        continue
-
-    extract the smallest TileId from the frame candidates
-    mark = trail_count
-    restrict the cell to the singleton and propagate
-
-    if there is a conflict:
-        record the leaf
-        rollback(mark) and count the backtrack
-    else if everything is resolved:
-        SAT without rollback
-    else:
-        count the new node
-        push { new MRV cell, its domain, mark }
+while a frame exists:
+    if its candidates are exhausted:
+        pop it, roll back to its entry marker, and continue at the parent
+    otherwise:
+        take the smallest tile ID
+        save the trail marker
+        restrict the chosen cell and propagate
+        on conflict: record the leaf and roll back
+        on complete singleton state: SAT
+        otherwise: push the next MRV frame
 ```
 
-The depth of a branch equals the number of frames while trying the candidate.
-Traversal order, metrics, and rollback semantics remain the same as in the
-recursive formulation.
+The reference path reserves one frame per active cell. The optimized path
+starts with at most 16 frames and grows geometrically up to the active-cell
+limit. The storage policy changes allocation, not search semantics.
 
-Allocation or writer failures are `ERROR`, not `UNSAT`.
+## 7. Mandatory SAT verification and publication
 
-Do not implement memoization in the baseline. With deterministic ordering and
-monotonic domains, reaching the same global state twice is unlikely, while a
-hash table would introduce extra memory use and random accesses.
+A SAT candidate is converted into a temporary dense `TileId` array: active
+singletons become tile IDs and inactive positions become `TILE_NONE`.
+Only a `WANG_VERIFY_VALID` candidate is published. Rejection converts the
+internal result to `WANG_SOLVE_ERROR` because it exposes a solver defect rather
+than a valid UNSAT decision.
 
-## 12. Mandatory SAT-result verification
+Trace finalization is the last fallible operation before publication. After it
+succeeds, the reference path copies verified domains into a caller-owned
+snapshot. The optimized path transfers its verified private domain buffer and
+detaches it from private state. Any diagnostic best-leaf buffer accumulated
+during a satisfiable run remains private and is freed.
 
-Before publishing `SAT`:
+## 8. UNSAT selection and snapshot policy
 
-1. temporarily build a `TileId[cell_count]` array;
-2. write `TILE_NONE` to inactive cells;
-3. extract the only bit from each active singleton domain;
-4. call `wang_verify_tiling()`;
-5. accept `SAT` only if the result is `WANG_VERIFY_VALID`.
+Every failed leaf records scalar metadata independently of optional outputs.
+The deterministic best-leaf order is:
 
-If the verifier rejects solver output, return `ERROR`: this is an internal bug,
-not `UNSAT`.
+1. greater `resolved_count`;
+2. at equal resolved count, greater decision depth;
+3. at a complete tie, the first leaf encountered.
 
-Only after this check may the final domains become public. The reference path
-copies them into its public snapshot. The optimized path may instead transfer
-the private domain buffer, but only after every later fallible operation, such
-as trace finalization, has succeeded. It must detach that buffer from private
-state before cleanup and must not expose any diagnostic failed-leaf snapshot
-that may also exist.
+The conflict cell, depth, and resolved count are always retained. Dense storage
+for the best leaf is allocated lazily only when
+`WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` is set. This separates a useful scalar
+diagnostic from a potentially large `cell_count * sizeof(uint32_t)` snapshot.
+The selected leaf is diagnostic and renderable, not a formal certificate of
+unsatisfiability.
 
-## 13. Optional metrics
+## 9. Optional metrics
 
-Update the public counters only when `WANG_SOLVE_COLLECT_METRICS` is present.
-Otherwise, every field must be zero.
+Every `WangSolverMetrics` field is zero unless
+`WANG_SOLVE_COLLECT_METRICS` is present. The counters have these stable
+meanings:
 
-Definitions that must remain stable in tests and documentation:
+| Metric group | Meaning |
+| --- | --- |
+| `dfs_nodes`, `decisions`, `backtracks`, `failed_leaves`, `max_depth` | Search states, attempted singleton branches, restored failed branches, observed conflicts, and deepest DFS level |
+| `domain_reductions`, `propagated_arcs`, `mrv_cells_scanned` | Effective narrowing operations, processed directed neighbor arcs, and active cells inspected by MRV |
+| `support_tile_visits`, `support_byte_lookups`, `support_table_bytes` | Reference set-tile work, optimized nonzero-byte work, and optimized table storage |
+| `initial_trail_writes`, `search_trail_writes` | Undo entries appended in initial propagation and DFS |
+| `initial_trail_rewrites`, `search_trail_rewrites` | Repeated entries for a cell within the initial interval or current branch interval |
+| `trail_peak`, `trail_capacity_peak`, `trail_bytes_peak` | Live trail entries and maximum allocated capacity |
+| `enqueue_attempts`, `duplicate_enqueue_attempts` | Queue requests and requests made while the cell is already pending |
+| `queue_dedup_index_bytes`, `queue_peak`, `queue_unique_peak` | Packed optimized index storage, total pending occurrences, and distinct pending cells |
+| `dfs_stack_capacity_peak`, `dfs_stack_bytes_peak` | Maximum allocated DFS stack capacity |
+| `sat_result_copy_bytes` | Bytes copied solely to construct the SAT result; zero for UNSAT and optimized ownership transfer |
 
-- `dfs_nodes`: search states visited, including the root;
-- `decisions`: singleton candidates actually tried;
-- `backtracks`: failed candidates that were restored;
-- `failed_leaves`: terminal conflicts observed;
-- `domain_reductions`: writes that actually narrow a domain, including one
-  effective root restriction from `WANG_DOMAIN_ALL` to a supplied active mask;
-- `propagated_arcs`: processed cell-neighbor arcs;
-- `support_tile_visits`: set tile candidates visited by the reference support
-  union loop; zero in the optimized byte-wise path;
-- `support_byte_lookups`: nonzero domain bytes looked up by the optimized
-  support union; zero in the reference path;
-- `support_table_bytes`: bytes owned by the optimized support table; 12,288 in
-  a valid optimized solve and zero in the reference path;
-- `mrv_cells_scanned`: active cells inspected by MRV scans;
-- `initial_trail_writes`: entries actually added to the trail during initial
-  propagation;
-- `search_trail_writes`: entries actually added to the trail during DFS;
-- `initial_trail_rewrites`: initial-propagation trail entries after the first
-  entry for the same cell in that single interval;
-- `search_trail_rewrites`: DFS trail entries after the first for the same cell
-  since the current candidate marker, including its singleton restriction and
-  propagation;
-- `trail_peak`: maximum number of entries simultaneously present in the trail;
-- `trail_capacity_peak`: maximum allocated trail capacity in entries;
-- `trail_bytes_peak`: bytes corresponding to the maximum allocated trail
-  capacity;
-- `enqueue_attempts`: requests to append a cell to the propagation FIFO;
-- `duplicate_enqueue_attempts`: enqueue requests made while the same cell
-  already has an unconsumed FIFO occurrence; the reference appends them while
-  the optimized path counts and suppresses them;
-- `queue_dedup_index_bytes`: bytes in the optimized packed pending-cell index;
-  zero for the reference path, root conflicts, no-arc cases, and whenever
-  metrics are disabled;
-- `queue_peak`: maximum number of not-yet-popped indices simultaneously
-  present in a propagation queue;
-- `queue_unique_peak`: maximum number of distinct cell indices among those
-  not-yet-popped occurrences;
-- `dfs_stack_capacity_peak`: maximum allocated DFS stack capacity in frames;
-- `dfs_stack_bytes_peak`: bytes corresponding to the maximum allocated DFS
-  stack capacity;
-- `max_depth`: maximum DFS depth reached;
-- `sat_result_copy_bytes`: bytes copied solely to construct the final SAT
-  result. It is zero for UNSAT, for the optimized ownership-transfer path, and
-  whenever metrics are disabled.
+Metrics-enabled runs are diagnostic work measurements, not timing samples.
+Elapsed time and process peak RSS are measured by the benchmark harness outside
+the solver result.
 
-Time is not part of `SolverMetrics`: benchmarks and callers measure it
-externally.
+## 10. Binary failed-leaf trace
 
-## 14. Binary mmap leaf trace
+### 10.1 Semantics and format
 
-### 14.1 Semantics
+`WANG_SOLVE_TRACE_FAILED_LEAVES` writes every observed failed leaf up to
+`failed_leaf_capacity`. The trace may contain records even when the final
+decision is SAT because earlier branches can fail. Once capacity is reached,
+later leaves contribute to `metrics.failed_leaves` but are not written, and
+`trace_truncated` is set.
 
-The trace is optional. If enabled, it contains every failed leaf encountered
-before rollback, up to `failed_leaf_capacity`.
-
-The file is diagnostic, not a formal UNSAT certificate. It may contain leaves
-even when the final result is `SAT`, because the solver may have failed on
-earlier branches.
-
-The exact number of leaves is not known before the search. The following is
-known instead:
+Version 1 is explicitly little-endian. Its 64-byte header contains:
 
 ```text
-record_size = aligned_record_prefix + cell_count * sizeof(uint32_t)
-allocated_file_size = file_header_size
-                    + failed_leaf_capacity * record_size
+magic[8]             "W23LEAF\0"
+version              1
+header_size          64
+width, height
+tile_count           23
+flags                bit 0 = truncated
+cell_count
+record_size
+record_capacity
+record_count
 ```
 
-The file is therefore preallocated to the requested capacity and truncated to
-the number of records actually written on completion.
-
-### 14.2 Version 1 format
-
-Do not write C structs directly without checking their layout and size. The v1
-format is little-endian and has a 64-byte header.
-
-```c
-typedef struct {
-    char magic[8];             /* "W23LEAF\0" */
-    uint32_t version;          /* 1 */
-    uint32_t header_size;      /* 64 */
-    uint32_t width;
-    uint32_t height;
-    uint32_t tile_count;       /* 23 */
-    uint32_t flags;            /* bit 0: trace_truncated */
-    uint64_t cell_count;
-    uint64_t record_size;
-    uint64_t record_capacity;
-    uint64_t record_count;
-} FailedLeafFileHeader;
-```
-
-The layout above is schematic. The current implementation writes each field at
-an explicit offset with little-endian helpers and does not depend on padding or
-`sizeof(FailedLeafFileHeader)`. If a future change writes a C struct directly,
-add at least:
-
-```c
-_Static_assert(sizeof(FailedLeafFileHeader) == 64,
-               "failed-leaf header must be 64 bytes");
-```
-
-The `_Static_assert` checks layout, not endianness. Write fields with small
-little-endian helpers, or explicitly reject a non-little-endian platform at
-compile time or runtime; do not silently produce a file with a byte order that
-differs from the declared one.
-
-Each record begins with 32 bytes:
-
-```c
-typedef struct {
-    uint64_t leaf_index;
-    uint64_t conflict_cell;
-    uint64_t decision_depth;
-    uint64_t resolved_count;
-} FailedLeafRecordHeader;
-```
-
-Exactly `cell_count` `uint32_t` values follow in row-major order. The record is
-completed with zero padding up to the next multiple of 8:
+Each record begins with four little-endian `uint64_t` values—leaf index,
+conflict cell, decision depth, and resolved count—followed by exactly
+`cell_count` little-endian `uint32_t` domains. Zero padding aligns the record to
+eight bytes:
 
 ```text
 raw_record_size = 32 + 4 * cell_count
 record_size = align_up(raw_record_size, 8)
 ```
 
-Check every overflow before `open`, `ftruncate`, and `mmap`.
+The writer uses explicit offsets and byte helpers, so the file format does not
+depend on C struct padding or host `sizeof` results.
 
-### 14.3 Writer lifecycle
+### 10.2 Writer lifecycle and failure cleanup
 
-The writer is isolated in `src/solver/failed_leaf_trace.c`, with a header
-private to the solver. Do not make it part of the general serialization API.
-
-Sequence:
-
-1. open `failed_leaf_path` with `O_RDWR | O_CREAT | O_TRUNC`, mode `0666`;
-2. calculate the maximum size with checked arithmetic;
-3. `ftruncate(fd, allocated_size)`;
-4. `mmap(..., PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)`;
-5. initialize the header with `record_count = 0`;
-6. for every failed leaf to record, use `memcpy` for the record header and
-   domains;
-7. if a leaf arrives after capacity is exhausted, do not write it and set
-   `trace_truncated = true`;
-8. at the end, update the header, `record_count`, and flags;
-9. call `msync` on the used portion;
-10. call `munmap` on the entire mapping;
-11. truncate to:
+Checked arithmetic establishes the maximum mapping size before file creation.
+The writer opens the path with `O_RDWR | O_CREAT | O_TRUNC`, expands it with
+`ftruncate`, maps it shared and writable, and initializes a zero-record header.
+Finalization writes flags and record count, synchronizes the used range,
+unmaps the complete allocation, truncates the file to
 
 ```text
 64 + record_count * record_size
 ```
 
-12. close the descriptor.
+and closes the descriptor.
 
-Do not shrink the file with `ftruncate` while the mapping is still in use.
+Setup failures after file creation unlink the path. Finalization also unlinks
+the path when synchronization, unmapping, final truncation, or close fails.
+Record output itself is a checked write into the mapped range; rejection of an
+impossible record bound is an internal `WANG_SOLVE_ERROR`. The current generic
+state cleanup then finalizes the active mapping, so the implementation does not
+establish the same unlink guarantee for that internal bounds-rejection path.
+Such a file has no valid status as a completed solver trace.
 
-If setup, writing, synchronization, or finalization fails, clean up all
-resources and return `WANG_SOLVE_ERROR`. The public result must remain
-destroyed. The partial file may remain for diagnostics, but it must not be
-presented as a complete trace.
+The writer is private to the serial solver module. It is not a general
+serialization API and has no shared-writer or multithreaded contract.
 
-### 14.4 Future multithreading
+## 11. Error handling and lifetimes
 
-Do not use locks or atomics today. In the future, do not let multiple workers
-write to the same resizable mapping: assign a private segment or file to each
-worker and merge the indices after the search. This note does not authorize
-any OpenMP implementation in this block.
+Allocation sizes and dense products use checked arithmetic. Private state owns
+domains, neighbor masks, byte-support tables, trail storage, queue storage,
+pending indexes, DFS frames, best-leaf storage, and temporary verification
+arrays. A single cleanup path releases them on validation, allocation,
+propagation, verification, or trace failure.
 
-## 15. Error handling and ownership
+The public result is assembled locally only after solving, independent SAT
+verification, and trace finalization succeed. This transactional publication
+keeps a conforming output destroyed on every error. Ownership transfer in the
+optimized SAT path occurs immediately before private cleanup, preventing both
+double frees and leaks on late failures.
 
-Every allocation must be preceded by an overflow check. On any error:
+## 12. Verification evidence
 
-- roll back and clean up the private state;
-- safely finalize or close the writer if it was opened;
-- `free` domains, neighbor mask, trail, queue, snapshot, and temporary arrays;
-- zero the public output;
-- return `WANG_SOLVE_ERROR`.
+The verifier regressions cover null and length errors, invalid or incomplete
+tile IDs, inactive assignments, boundary mismatches in every direction,
+horizontal and vertical adjacency, holes, and corrupted region storage.
 
-Construct the result in a local variable and transfer it to `out_result` only
-on completion. Do not publish fields progressively.
+The solver suites exercise both public entry points across:
 
-If the optimized SAT path transfers the live domain buffer, detach it only
-after trace finalization and immediately before private-state cleanup. A
-failed-leaf snapshot created during a satisfiable diagnostic run remains
-private and must still be freed. This ordering prevents both double frees and
-leaks on late writer errors.
+- absent, singleton, multi-bit, zero, and malformed initial domains;
+- complete option validation before root UNSAT interpretation;
+- empty, forced, contradictory, backtracking, and deep-search regions;
+- brute-force equivalence on small deterministic and pseudo-random regions;
+- rollback after repeated changes to the same cell;
+- independent verification of every SAT witness;
+- default scalar-only UNSAT results and opt-in dense snapshots;
+- metrics-disabled zeroing and mechanism-specific counters;
+- queue suppression, pop/re-enqueue behavior, and conflict cleanup;
+- destroyed-output, already-owned-output, and idempotent-destruction cases.
 
-The solver must reject an undestroyed `out_result` to prevent leaks or silent
-overwrites.
+Trace tests check absence without the flag, invalid path/capacity handling,
+magic and version fields, record geometry, exact final size, truncation at
+capacity, readability after unmap/close, and unlinking after post-creation setup
+or finalization failure.
 
-## 16. Required tests
+Yang–Zhang integration includes shared SAT and UNSAT fixtures, the documented
+three-variable satisfying instance, a clause-row regression, and all 1,701
+canonical formulas through three variables checked against the independent
+Boolean oracle.
 
-### 16.1 Verifier
+## 13. Reproduction and profiling
 
-Test at least:
-
-- null arguments and incorrect length;
-- `TILE_NONE` on an active cell;
-- out-of-range `TileId`;
-- a tile assigned to an inactive cell;
-- a single cell with all correct boundaries;
-- a boundary mismatch in each direction;
-- two horizontally compatible and incompatible cells;
-- two vertically compatible and incompatible cells;
-- a region with an inactive cell/hole;
-- a manually corrupted `Region`: invalid color or boundary on an internal
-  edge.
-
-### 16.2 Solver
-
-Test at least:
-
-- invalid options and output objects;
-- absent, singleton, multi-bit, zero, and malformed initial-domain arrays
-  through both public entry points, including complete validation before root
-  UNSAT, boundary incompatibility, input immutability, and unchanged
-  unconstrained determinism;
-- a region with no active cells -> `SAT`;
-- a single forced cell -> `SAT`, with the correct singleton domain;
-- a single cell with an impossible boundary -> `UNSAT`, no default snapshot,
-  and a valid `conflict_cell`;
-- the same region with `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` -> snapshot present,
-  zero conflict domain, and consistent metadata;
-- small SAT and UNSAT regions compared with an independent brute force in the
-  tests;
-- every SAT result accepted by `wang_verify_tiling()`;
-- reference and optimized constrained results compared with a brute-force
-  verifier oracle over deterministic and pseudo-random small masks;
-- determinism: two executions produce the same status and snapshot;
-- metrics all zero without the flag and consistent with the flag;
-- optimized queue deduplication with exact requests, suppressed pending
-  duplicates, packed-index bytes, pop/re-enqueue behavior, and cleanup after a
-  conflict; reference queue metrics remain at their baseline values;
-- rollback after multiple levels, including multiple changes to the same cell;
-- an unconstrained region exceeding ten thousand decision levels, to exercise
-  the explicit DFS stack without depending on the process stack;
-- unmodified input and `Region`;
-- conforming output left destroyed after an error, already-owned output rejected
-  unchanged, and idempotent destruction.
-
-The brute-force test oracle must enumerate `TileId` values directly on very
-small regions and use the verifier; it must not call the solver or its caches.
-
-### 16.3 mmap trace
-
-Use a temporary path owned by the test. Verify:
-
-- no file created without the flag;
-- error with a null/empty path or zero capacity;
-- magic, version, dimensions, and `record_size`;
-- at least one leaf written for an UNSAT case;
-- `record_count == out_result.traced_leaf_count`;
-- exact final size:
-
-```text
-64 + record_count * record_size
-```
-
-- the domain of the record's `conflict_cell` is zero;
-- capacity reached: additional leaves are not written and
-  `trace_truncated == true`;
-- file readable after `munmap`/close;
-- correct cleanup on a writer error.
-
-Do not leave temporary files after the tests.
-
-### 16.4 Yang-Zhang integration
-
-After the small tests are stable:
-
-- build the minimal `{0,0,0}` formula with `yang_zhang_build()` and compare the
-  solver result with the expected CM1-in-3 semantics (`UNSAT`);
-- try the three-variable instance documented in the builder, which admits the
-  assignment `(0,0,1)`, and require a verified `SAT` tiling;
-- retain a regression in which the only true signal enters the first row of a
-  clause;
-- enumerate all 1,701 canonical formulas with up to three variables and
-  compare every result with the Boolean oracle;
-- if these tests are too expensive for `make check`, mark them as a separate
-  integration target instead of weakening the unit tests.
-
-## 17. Checks and profiling
-
-Run during development:
+The standard local gates are:
 
 ```sh
 make clean
@@ -875,55 +465,23 @@ make valgrind-check
 make cachegrind-check
 ```
 
-If Valgrind is not installed, `make check` remains the mandatory gate.
+The benchmark and profiler paths keep metrics runs separate from timings and
+measure MRV scans, queue duplication, trail pressure, domain reductions,
+support aggregation, SAT-copy bytes, process peak RSS, and instruction/cache
+attribution. Dated reports in the
+[solver optimization section]({{ '/#solver-optimization' | relative_url }})
+record the evidence for each retained optimized mechanism.
 
-Use metrics and Cachegrind to answer these questions before optimizing:
+## 14. Current guarantees and limits
 
-- how much of the work is the MRV scan;
-- how many duplicates enter the queue;
-- how large the trail grows;
-- how many reductions each decision produces;
-- how much copying each leaf into the trace costs.
+The implementation returns distinct SAT, UNSAT, and ERROR statuses; verifies
+every SAT witness independently; returns dense domains for SAT and only for
+explicitly captured UNSAT snapshots; preserves scalar best-leaf metadata
+without that allocation; and removes trace output after post-creation setup or
+finalization failure. Private caches and optimized storage remain derived from
+domains, geometry, and `TILESET` rather than becoming new constraint sources.
 
-Optimizations allowed only after measurement:
-
-- 24 MRV buckets;
-- a bitset of cells for each bucket;
-- further propagation scheduling after the completed queue deduplication;
-- traces of deltas or decision paths instead of complete snapshots.
-
-Do not introduce skip lists or global memoization as the first optimization.
-
-## 18. Recommended implementation order
-
-1. Implement `verify.h`, `verify_tiling.c`, and `test_verify.c`.
-2. Define `solver.h` and test result lifetime/validation.
-3. Implement and verify the private `edge_mask` and `compat` tables.
-4. Initialize domains and the neighbor mask from boundaries.
-5. Implement the trail, rollback, and propagation queue.
-6. Implement DFS/MRV with an explicit stack and no trace.
-7. Independently verify every SAT result.
-8. Implement selection and return of the best UNSAT leaf.
-9. Add metrics behind a flag.
-10. Implement the mmap writer and a minimal format parser in the tests.
-11. Add deterministic regressions and brute-force comparisons.
-12. Run checks, Valgrind, and Cachegrind.
-13. Only after completing the work, update the README from "not implemented"
-    to the status actually reached.
-
-## 19. Definition of done
-
-The work package is complete when:
-
-- the verifier and solver have documented public contracts;
-- the solver returns `SAT`, `UNSAT`, or `ERROR` unambiguously;
-- `SAT` contains singleton domains and passes the independent verifier;
-- `UNSAT` always reports failed-leaf metadata and contains a renderable domain
-  snapshot only when `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` is requested;
-- the optional mmap trace contains valid records, respects the cap, and is
-  truncated to its actual size;
-- metrics remain zero or are populated according to the flag;
-- no private cache becomes a second source of truth;
-- the solver remains independent of builder geometry and metadata;
-- `make check` passes without warnings;
-- tests do not leak memory or leave temporary files.
+The failed-leaf snapshot and trace are diagnostics, not formal UNSAT
+certificates. The implemented paths are serial. `TaskPlan`, OpenMP execution,
+clause learning, backjumping, persistent memoization, rendering, and JSON
+export remain outside this solver contract.

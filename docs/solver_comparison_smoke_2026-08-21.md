@@ -3,15 +3,20 @@ layout: page
 title: Native and Z3 solver comparison smoke baseline
 permalink: /solver_comparison_smoke_2026-08-21/
 description: Seven-sample native and Z3 baseline on the smallest shared SAT and UNSAT inputs.
+section: Cross-engine benchmarks
+document_kind: Benchmark report
+status: Recorded evidence
+updated: 2026-08-21
+nav_order: 20
 ---
 
 # Native and Z3 solver comparison smoke baseline — 21 August 2026
 
 ## Scope
 
-This report records the first run of the comparison protocol defined in
-[`solver_comparison_benchmark.md`](solver_comparison_benchmark.md). It answers
-two deliberately different questions:
+This report records the first run of the
+[cross-engine benchmark protocol]({{ '/solver_comparison_benchmark/' | relative_url }}).
+It answers two deliberately different questions:
 
 - how the native reference, native optimized, and Wang Z3 paths compare when
   region preparation is outside the timer;
@@ -26,7 +31,7 @@ formula directly; the other engines decide its Yang–Zhang Wang region.
 The run used the portable project flags and one pinned logical CPU:
 
 ```text
-host                 padova-server
+host                 local benchmark host
 cpu                  AMD Ryzen 5 3600 6-Core Processor
 affinity             CPU 2
 kernel               6.12.101+deb13-amd64
@@ -38,7 +43,7 @@ Z3                   4.16.0
 benchmark schema     8
 comparison schema    1
 base commit          f7f7123336406b046298275f1244646f66421736
-worktree             dirty with the candidate comparison packet
+source snapshot      modified from base commit; exact hashes recorded below
 ```
 
 The measured benchmark sources had these identities:
@@ -130,7 +135,8 @@ UNSAT region but about 10.79 seconds to construct the SAT witness.
 
 This corpus is useful for correctness, propagation, and witness-cost checks. It
 does not represent a hard UNSAT instance whose contradiction appears only after
-deep backtracking. Such a family requires a separate justified corpus packet.
+deep backtracking. A harder UNSAT family therefore requires its own justified
+corpus and measurement protocol.
 
 ## Scaling pilot and limits
 

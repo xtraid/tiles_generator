@@ -1,17 +1,25 @@
 ---
 layout: page
-title: Development principles
+title: Architecture and ownership boundaries
 permalink: /development_principles/
-description: Implementation boundaries and engineering rules for Tiling Foundry.
+description: How Tiling Foundry separates source data, derived state, native lifetimes, solvers, and independent verification.
+section: Architecture and correctness
+document_kind: Architecture reference
+status: Current implementation
+updated: 2026-08-21
+nav_order: 10
 ---
 
-# Development principles
+# Architecture and ownership boundaries
 
-This document guides implementation choices as the project grows. It is not a
-second architecture specification and does not freeze APIs before they exist.
+Tiling Foundry separates mathematical construction, native search, independent
+verification, Python reference models, and cross-check orchestration. This page
+explains those boundaries and the ownership rules that make the resulting
+pipeline auditable.
 
-The architecture PDF describes the broad destination. Public headers and tests
-remain authoritative for implemented behavior.
+The [initial architecture PDF]({{ '/historical_architecture/' | relative_url }})
+records the project’s broader starting point. Public headers and tests remain
+authoritative for implemented behavior.
 
 ## Core rule
 
@@ -58,7 +66,7 @@ fully Python-owned values out.
 Dependencies flow in one direction:
 
 ```text
-                    C parser + Yang-Zhang builder
+                    C parser + Yang–Zhang builder
                                 |
                                 v
                             libwang.so
@@ -106,7 +114,7 @@ are alive:
                        /           \
                       /             \
                      v               v
-             copy Formula Py    Yang-Zhang builder
+             copy Formula Py    Yang–Zhang builder
                      |               |
                      v               v
              Boolean Z3           Region C
@@ -143,7 +151,7 @@ There are two distinct oracle contracts:
   I/O, ctypes work, region construction, or reduction.
 - Wang Z3 (implemented): `Region + canonical TILESET -> tiling constraints ->
   SAT/UNSAT/UNKNOWN` and a dense tiling only for SAT. It receives the same
-  concrete region as the native solver and does not rebuild Yang-Zhang.
+  concrete region as the native solver and does not rebuild Yang–Zhang.
 
 The Boolean witness checker remains pure Python and counts clause positions,
 not unique variables: `(x, x, y)` counts `x` twice. The Wang checker separately
@@ -180,34 +188,35 @@ the same satisfying assignment, and solving after extraction need not reproduce
 the original tiling byte for byte. A mismatch remains a copied counterexample;
 it is not rewritten as another solver status.
 
-## Minimal Region direction
+## Region representation
 
-`Region` should initially store only source-of-truth geometry:
+The implemented `Region` stores only source-of-truth geometry:
 
 - bounding width and height;
 - whether each dense row-major cell is active;
 - boundary color constraints for active cells.
 
-Do not initially store:
+The representation omits derived or consumer-specific state:
 
 - per-cell `x` and `y`, because they are derived from the row-major index;
 - cached neighbor indices, because they are derived from geometry;
-- `active_count`, unless a measured consumer needs the cache;
+- a cached `active_count`;
 - `zone_id` or other OpenMP metadata;
 - tile domains, assignments, gadget types, or signal plans.
 
-Neighbor lookup can be introduced as a pure helper when verifier or solver code
-needs it. Scheduling metadata belongs to a separate future preprocessing result.
+The verifier and solver derive neighbor indices from dense geometry. Scheduling
+metadata, if introduced for a concrete parallel executor, belongs to a separate
+preprocessing result rather than `Region`.
 
 The generic representation may describe disconnected regions or regions with
-holes. The Yang-Zhang builder is responsible for producing the required simply
+holes. The Yang–Zhang builder is responsible for producing the required simply
 connected instances, and its tests must verify that property.
 
-## Development order
+## Implemented dependency order
 
 1. Minimal `Region` storage, lifetime, access, and boundary tests (complete).
 2. Canonical Cubic Monotone 1-in-3 SAT representation, strict text parser,
-   validation, and formula-to-region Yang-Zhang builder (complete).
+   validation, and formula-to-region Yang–Zhang builder (complete).
 3. Independent verifier exercised on hand-built regions and tilings
    (complete).
 4. Correct deterministic serial solver; every witness passes the verifier
@@ -227,7 +236,7 @@ and remain derived from `TILESET`. `TaskPlan`, zone ownership, diagnostic IR,
 and renderer schemas remain deferred until a preceding module provides a real
 use case.
 
-## Definition of done for a module
+## Module completeness criteria
 
 A module is implemented when it has:
 

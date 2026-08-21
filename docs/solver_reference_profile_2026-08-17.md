@@ -3,11 +3,14 @@ layout: page
 title: Serial solver reference profile
 permalink: /solver_reference_profile_2026-08-17/
 description: Reproducible reference measurements for the serial Wang solver.
+section: Solver optimization
+document_kind: Benchmark report
+status: Recorded baseline
+updated: 2026-08-17
+nav_order: 20
 ---
 
 # Serial solver reference profile — 17 August 2026
-
-Status: authoritative baseline for the first performance work packet.
 
 This report profiles the existing serial Wang solver after making the dense
 UNSAT best-failed-leaf snapshot explicitly opt-in. It does not profile an
@@ -24,8 +27,8 @@ Baseline parent Git commit:
 a00ec08a8fd2ddcd69c542af6787fb3e88049aaa
 ```
 
-The profiling work was not committed when these measurements were recorded.
-The relevant file identities are therefore included explicitly:
+The measured source did not correspond to a commit. The relevant file
+identities are therefore included explicitly:
 
 ```text
 1d171d2e54bd5a742e183def7da22bce4c5bb1ca50ee8d02f6c2f59400ea71bc  include/wang/solver.h
@@ -69,7 +72,7 @@ The harness prints one key-value record per execution. It separates:
    conflict.
 
 Each case runs in a distinct process. Solver-only cases construct `Region`
-before starting the timer. End-to-end Yang-Zhang cases include region building,
+before starting the timer. End-to-end Yang–Zhang cases include region building,
 native solving, the solver's mandatory witness verification, and destruction.
 Peak RSS is `getrusage(RUSAGE_SELF).ru_maxrss` on a single solve so allocator
 retention across repeated solves does not inflate the memory result.
@@ -186,7 +189,7 @@ denominator:
 - `generic_forced_thin_sat`: 66,080,588 instructions; the serial solver is
   85.41 percent inclusive and `propagate_queue()` alone is 29.40 percent self.
 
-The phase boundary is also visible on Yang-Zhang SAT. For six variables,
+The phase boundary is also visible on Yang–Zhang SAT. For six variables,
 `wang_solve_serial()` is 97.41 percent inclusive, the builder is 2.43 percent,
 and the independent verifier inside the solver is 3.81 percent. At twelve
 variables those figures are 97.59, 2.35, and 3.79 percent respectively.
@@ -196,7 +199,7 @@ Cachegrind reports:
 
 - unconstrained: 192,940,808 data references, 2.9 percent D1 miss rate and
   effectively zero aggregate last-level data miss rate;
-- six-variable Yang-Zhang SAT: 10,384,328 data references, 0.6 percent D1 and
+- six-variable Yang–Zhang SAT: 10,384,328 data references, 0.6 percent D1 and
   0.3 percent LLd miss rates.
 
 The measured cases are primarily paying for work volume and instruction count,
@@ -209,32 +212,32 @@ The reference baseline exposes two distinct hot regimes:
 
 1. Linear MRV dominates a large, weakly constrained search. A derived MRV
    index or 24 buckets is justified for the performance path, but it will not
-   materially help the profiled Yang-Zhang reductions, which make only 2--8
+   materially help the profiled Yang–Zhang reductions, which make only 2--8
    decisions.
-2. Propagation dominates both medium and large Yang-Zhang SAT cases at about
+2. Propagation dominates both medium and large Yang–Zhang SAT cases at about
    84 percent of instructions. This keeps a serial `TaskPlan` and later OpenMP
    propagation in scope, but only after cheaper serial mechanisms and an exact
    executor-equivalence test.
 3. The reference DFS reserves one `SearchFrame` per active cell. On the large
-   Yang-Zhang SAT case this means capacity for 76,247 frames while observed
+   Yang–Zhang SAT case this means capacity for 76,247 frames while observed
    depth is 8. Dynamic performance-path stack capacity is therefore the first
    low-risk memory candidate. The unconstrained case, whose depth is 9,059 of
    9,216 active cells, remains the counterexample that prevents assuming all
    workloads are shallow.
-4. Queue and trail pressure scale materially: the large Yang-Zhang SAT case
+4. Queue and trail pressure scale materially: the large Yang–Zhang SAT case
    reaches 228,255 pending queue entries and 510,665 live trail entries. Add
    direct duplicate/rewrite measurements before implementing `in_queue` or
    trail compaction.
 5. Opt-in UNSAT diagnostics work as intended: default root-UNSAT avoids one
    complete dense snapshot without changing SAT/UNSAT or scalar failed-leaf
    metadata.
-6. The current 95-ms large Yang-Zhang solve is still small enough that OpenMP
+6. The current 95-ms large Yang–Zhang solve is still small enough that OpenMP
    overhead may dominate. Parallel work requires a predeclared speedup/RSS gate
    and larger scaling cases; no OpenMP conclusion is made from this baseline.
 
-The next work packet should establish the performance execution path and its
-differential tests, then evaluate dynamic DFS storage as its first isolated
-change. MRV indexing and propagation work are separate measured tracks. No
+The evidence supports a separate performance execution path with differential
+tests and identifies dynamic DFS storage as the lowest-risk first mechanism.
+MRV indexing and propagation work remain separate measured tracks. No
 reference-path rewrite is justified by this report.
 
 ## Verification status

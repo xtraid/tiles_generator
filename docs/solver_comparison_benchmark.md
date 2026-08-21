@@ -3,11 +3,14 @@ layout: page
 title: Native and Z3 solver comparison benchmark
 permalink: /solver_comparison_benchmark/
 description: Reproducible protocol for comparing the native and Python Z3 decision paths.
+section: Cross-engine benchmarks
+document_kind: Benchmark protocol
+status: Current protocol
+updated: 2026-08-21
+nav_order: 10
 ---
 
 # Native and Z3 solver comparison benchmark
-
-Status: implemented protocol, 21 August 2026.
 
 The comparison runner executes every implemented decision path against a fixed
 set of versioned Cubic Monotone 1-in-3 SAT files. It records raw samples and
@@ -139,7 +142,7 @@ two runs are treated as a controlled comparison.
 
 ## Recorded baseline
 
-[`solver_comparison_smoke_2026-08-21.md`](solver_comparison_smoke_2026-08-21.md)
+[smoke baseline]({{ '/solver_comparison_smoke_2026-08-21/' | relative_url }})
 records the first seven-sample, CPU-pinned smoke baseline, including complete
 timing ranges, process RSS, correctness results, the shallow-UNSAT explanation,
 and the limits on cross-problem interpretation.

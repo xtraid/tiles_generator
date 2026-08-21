@@ -1,30 +1,36 @@
-# Boolean-assignment and Wang-tiling witness extension
+---
+layout: page
+title: Boolean–Wang witness correspondence
+permalink: /witness_correspondence/
+description: How exact Boolean assignments are extended to Wang tilings and extracted again without coupling the generic solver to reduction semantics.
+section: Architecture and correctness
+document_kind: Technical design
+status: Current implementation
+updated: 2026-08-21
+nav_order: 30
+---
 
-Date: 21 August 2026
-
-Status: implemented and verified on 21 August 2026
-
-Implementation status: complete
+# Boolean–Wang witness correspondence
 
 ## 1. Purpose
 
-Before this extension, the pipeline established two strong but separate facts:
+The pipeline establishes two important but separate facts:
 
 - Boolean Z3 and the Wang solvers agree on SAT/UNSAT for shared inputs;
 - every Boolean assignment and Wang tiling returned by its own solver passes an
   independent verifier.
 
-That decision-level agreement did not compute the witness correspondence
-required by the original architecture addendum:
+Decision-level agreement alone does not compute the witness correspondence
+required by the original architecture:
 
 ```text
 specific Boolean assignment -> concrete Wang tiling -> Wang verifier
 specific Wang tiling        -> Boolean assignment -> formula verifier
 ```
 
-This milestone adds that correspondence while preserving the existing module
-boundaries. The generic Wang solver gains an optional initial-domain input. A
-small native Yang-Zhang bridge translates between Boolean assignments and the
+The implemented witness path adds that correspondence while preserving the
+module boundaries. The generic Wang solver accepts an optional initial-domain input. A
+small native Yang–Zhang bridge translates between Boolean assignments and the
 variable cells of a concrete reduction. A minimal Python coordinator keeps the
 native formula and reduction alive while connecting Boolean Z3 to the native
 solver. No persistent signal plan, copied swap trace, or reverse-marshalled
@@ -38,7 +44,7 @@ The implementation has three layers:
    a dense array of initial tile-domain masks. Both the reference and optimized
    entry points apply the same contract. This layer knows only `Region`, tile
    masks, and Wang constraints.
-2. **Native Yang-Zhang witness bridge.** A small cross-check C module receives the concrete
+2. **Native Yang–Zhang witness bridge.** A small cross-check C module receives the concrete
    `YangZhangReduction`, constructs dense initial masks from a Boolean
    assignment, extracts a Boolean assignment from a verified dense tiling, and
    tests whether an assignment and tiling correspond. It does not inspect the
@@ -52,16 +58,14 @@ The implementation has three layers:
    assignment. Python orchestrates lifetimes and independent checks; it does
    not reproduce gadget semantics or solver logic.
 
-The proposed C function names in this document are descriptive, not frozen API
-signatures. The implementation plan may adjust prefixes and parameter grouping
-after checking the complete public-header style, but it must preserve every
-contract and dependency boundary below. The `WangSolverOptions` field names and
-their semantics are fixed by this design.
+The C operation names below mirror the implemented API. Exact declarations live
+in the public headers; the contracts and dependency boundaries described here
+are the stable part of the design.
 
 ## 3. Goals
 
 - Extend one exact satisfying Boolean assignment to a concrete, independently
-  verified Wang tiling of its corresponding Yang-Zhang region.
+  verified Wang tiling of its corresponding Yang–Zhang region.
 - Extract one exact Boolean assignment from any verified tiling of the
   corresponding region, leaving formula verification to the external Boolean
   checker so a spurious Wang witness remains observable as a counterexample.
@@ -88,7 +92,7 @@ their semantics are fixed by this design.
 - No Python copy of `YangZhangReduction.swaps` and no Python reimplementation of
   occurrence routing or gadget placement.
 - No reverse marshalling from Python `Formula` or `Region` into native structs.
-- No Yang-Zhang concepts in the generic solver and no solver concepts in the
+- No Yang–Zhang concepts in the generic solver and no solver concepts in the
   immutable model classes.
 - No OpenMP work, square-to-hex work, renderer integration, JSON schema work,
   or unrelated solver optimization.
@@ -125,7 +129,7 @@ These properties define a computable correspondence in which extraction is a
 left inverse of assignment extension. They deliberately do not assert a
 bijection between all satisfying assignments and all possible tilings. A
 uniqueness claim requires separate proof and model-counting evidence and is
-outside this milestone.
+outside this design.
 
 ## 6. Provenance precondition
 
@@ -183,10 +187,8 @@ The public contract defines the legal tile-bit universe as the low
 WANG_DOMAIN_ALL = (UINT32_C(1) << TILE_COUNT) - UINT32_C(1)
 ```
 
-The implementation must expose one canonical public constant or inline helper
-for this mask so generic callers and the native bridge do not duplicate the
-bit expression. The implementation plan may align its name with public-header
-style; the current private solver macro must not remain a second definition.
+The public `WANG_DOMAIN_ALL` constant is the canonical expression of this mask,
+so generic callers and the native bridge do not duplicate the bit expression.
 
 For every supplied entry:
 
@@ -257,7 +259,7 @@ object unchanged so it is not leaked or overwritten. SAT and UNSAT retain the
 current result ownership contract. Both public solver entry points implement
 this exact table through their shared core.
 
-## 8. Native Yang-Zhang witness bridge
+## 8. Native Yang–Zhang witness bridge
 
 ### 8.1 Boundary
 
@@ -293,7 +295,7 @@ It then allocates one dense domain mask per `RegionCell`:
   `TILE_V0_BOTTOM`;
 - for true variable `v`, all three cells are fixed to `TILE_V1`.
 
-These are the only Yang-Zhang-specific initial restrictions. Redundant rows,
+These are the only Yang–Zhang-specific initial restrictions. Redundant rows,
 forwarders, anchors, crossovers, and clause gadgets remain consequences of the
 region boundary, canonical tileset, propagation, and search.
 
@@ -305,9 +307,9 @@ between direct Boolean validity and Wang SAT. The bridge must never
 short-circuit from a Boolean checker or return SAT without a Wang solve and
 verified tiling.
 
-The operation supports both reference and optimized native entry points. The
-implementation may use a selected solve-function parameter or symmetric
-wrappers, but it must not add a Yang-Zhang mode flag to `WangSolverOptions`.
+The operation supports both reference and optimized native entry points through
+an explicit solver selector. It does not add a Yang–Zhang mode flag to
+`WangSolverOptions`.
 
 On SAT, the extension operation returns the generic solver result without
 calling extraction or correspondence. The proof harness normalizes the
@@ -468,12 +470,12 @@ diagnostic metadata and is destroyed with the reduction.
 - The Python coordinator releases the reduction before the formula and uses
   `finally` blocks for both lifetimes.
 
-## 12. Test strategy
+## 12. Verification evidence
 
 ### 12.1 Generic solver tests
 
-Run every public-contract case through both `wang_solve_serial()` and
-`wang_solve_optimized()`:
+The C suite runs every public-contract case through both
+`wang_solve_serial()` and `wang_solve_optimized()`:
 
 - absent initial domains preserve the existing deterministic status and SAT
   witness;
@@ -497,14 +499,14 @@ Run every public-contract case through both `wang_solve_serial()` and
 - reference and optimized statuses agree and every SAT witness passes the
   independent verifier.
 
-The differential suite must include randomized small generic regions with
-random legal initial masks and compare each solver against brute force under
-the same masks.
+The differential suite includes randomized small generic regions with random
+legal initial masks and compares each solver against brute force under the same
+masks.
 
 ### 12.2 Exhaustive small witness equivalence
 
-Reuse the existing enumeration of all 1,701 canonical formulas through three
-variables. For every formula, enumerate all `2^n` Boolean assignments rather
+The exhaustive suite reuses all 1,701 canonical formulas through three
+variables. For every formula it enumerates all `2^n` Boolean assignments rather
 than requesting one preferred solver model.
 
 For each assignment and for each native solver entry point:
@@ -546,35 +548,37 @@ and returned tiling before cleanup so the mismatch remains reproducible.
 
 ### 12.4 Regression gates
 
-The implementation must pass the existing C and Python suites, strict GCC and
-Clang builds, sanitizers, static analysis, Memcheck, and the relevant
-Cachegrind/differential targets. The standard comparison benchmark remains a
-decision/performance suite; witness-extension timing is not added to its
-published baselines in this milestone unless separately scoped.
+The implementation passed the C and Python suites, strict GCC and Clang builds,
+sanitizers, static analysis, Memcheck, and the relevant Cachegrind and
+differential targets. The standard comparison benchmark remains a
+decision/performance suite; witness-extension timing is outside its published
+baselines.
 
-## 13. Documentation changes required with implementation
+## 13. Documentation boundary
 
-When the code lands, update:
+The public description of the feature is split by concern:
 
-- `README.md` goal, current status, missing-work list, and pipeline diagram;
-- `docs/development_principles.md` module and dependency boundaries;
-- `docs/serial_solver_implementation_guide.md` public options, initialization,
-  status, ownership, and required tests;
-- `docs/reduction_notes.md` with the precise witness-level correspondence and
-  its non-bijection caveat;
-- the relevant native and Python adapter documentation.
+- the [architecture reference]({{ '/development_principles/' | relative_url }})
+  defines module ownership and dependency direction;
+- the [serial solver reference]({{ '/serial_solver_implementation_guide/' | relative_url }})
+  defines initial-domain, status, and ownership contracts;
+- the [reduction note]({{ '/reduction_notes/' | relative_url }}) states the
+  witness-level correspondence and its non-bijection caveat;
+- this page explains why the native bridge and Python coordinator preserve
+  independent verification.
 
-The architecture PDF and the Yang-Zhang paper remain historical/theoretical
-sources and are not edited by this milestone.
+The [initial architecture specification]({{ '/historical_architecture/' | relative_url }})
+and the Yang–Zhang paper remain historical and theoretical sources rather than
+descriptions of the current API.
 
-## 14. Completion criteria
+## 14. Implemented properties and limits
 
-The milestone is complete only when all of the following hold:
+The implementation provides these properties:
 
 - optional initial domains obey the strict dense mask contract in both native
   solver entry points;
 - the generic solver remains free of formula, assignment, signal, gadget, and
-  Yang-Zhang dependencies;
+  Yang–Zhang dependencies;
 - the native bridge implements extension, extraction, and representation-only
   correspondence over `YangZhangReduction` without persistent metadata or
   access to `swaps`;
@@ -584,7 +588,8 @@ The milestone is complete only when all of the following hold:
   assignment round trips for reference and optimized solvers;
 - native and Wang-Z3 tilings extract independently verified Boolean witnesses;
 - ERROR, UNSAT, SAT, and Boolean UNKNOWN remain distinct;
-- all ownership, invalid-input, independent-verification, regression, and
-  artifact gates pass;
-- no `SignalPlan`, swap copy, OpenMP behavior, renderer work, or unrelated
-  abstraction enters the change.
+- ownership, invalid-input, independent-verification, regression, and artifact
+  gates cover the feature.
+
+It does not introduce a `SignalPlan`, copy swaps into Python, enable OpenMP,
+integrate rendering, or claim a bijection between assignments and tilings.

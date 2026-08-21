@@ -2,7 +2,42 @@
 layout: default
 ---
 <article class="article article--reference" data-wang-sections>
+  <header class="document-context" data-content-column data-wang-landmark>
+    <nav class="document-breadcrumb" aria-label="Breadcrumb">
+      <a href="{{ '/#documentation' | relative_url }}">Documentation</a>
+      <span aria-hidden="true">/</span>
+      <span>{{ page.section | escape }}</span>
+    </nav>
+
+    <p class="document-description">{{ page.description | escape }}</p>
+
+    <dl class="document-meta" aria-label="Document metadata">
+      <div>
+        <dt>Type</dt>
+        <dd>{{ page.document_kind | escape }}</dd>
+      </div>
+      <div>
+        <dt>Status</dt>
+        <dd>{{ page.status | escape }}</dd>
+      </div>
+      <div>
+        <dt>Updated</dt>
+        <dd><time datetime="{{ page.updated | date_to_xmlschema }}">{{ page.updated | date: "%Y-%m-%d" }}</time></dd>
+      </div>
+    </dl>
+  </header>
+
+  <nav class="document-toc" data-document-toc aria-label="On this page" hidden>
+    <p>On this page</p>
+    <ol></ol>
+  </nav>
+
   <div class="article__body" data-content-column>
     {{ content }}
   </div>
+
+  <nav class="document-return" aria-label="Documentation navigation">
+    <a href="{{ '/#documentation' | relative_url }}">Back to documentation index</a>
+  </nav>
 </article>
+<script type="module" src="{{ '/assets/js/document-toc.js' | relative_url }}"></script>

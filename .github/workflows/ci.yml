@@ -8,6 +8,28 @@ permissions:
   contents: read
 
 jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Check document catalog and links
+        run: make pages-check
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Build GitHub Pages site
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./docs
+          destination: ./build/pages
+
   build-and-test:
     runs-on: ubuntu-latest
 

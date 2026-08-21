@@ -1,13 +1,16 @@
 ---
 layout: page
-title: Solver performance scope
+title: Solver optimization methodology and execution paths
 permalink: /solver_performance_scope/
-description: Accepted boundaries, metrics, and gates for serial Wang-solver optimization.
+description: Stable correctness boundaries, measurement rules, and current mechanisms for the reference and optimized Wang solver paths.
+section: Solver optimization
+document_kind: Methodology
+status: Current methodology
+updated: 2026-08-21
+nav_order: 10
 ---
 
 # Solver performance scope
-
-Status: accepted design direction, 17 August 2026.
 
 This document fixes the scope and guardrails for profiling and accelerating the
 native Wang solver. It is not an implemented API contract and does not select
@@ -118,7 +121,7 @@ Neither path may decide or guide Wang search using:
 
 - a Boolean assignment from the Cubic Monotone 1-in-3 formula;
 - formula variables or clauses as solver primitives;
-- the Yang-Zhang swap trace;
+- the Yang–Zhang swap trace;
 - forwarder, anchor, crossover, or other generalized-gadget labels;
 - precomputed gadget solutions;
 - SAT/UNSAT conclusions produced by an external reduction-specific solver.
@@ -152,10 +155,10 @@ opt-in diagnostic feature, disabled by default:
 - UNSAT with the diagnostic flag returns the selected best failed leaf;
 - failed-leaf tracing and best-snapshot capture remain separate options.
 
-This target contract is now implemented by the serial reference solver. Dense
-UNSAT snapshot storage is allocated lazily only when explicitly requested;
-scalar failed-leaf metadata remains available without it. The default and
-diagnostic modes must both remain represented in the performance baseline.
+Both `wang_solve_serial()` and `wang_solve_optimized()` implement this contract.
+Dense UNSAT snapshot storage is allocated lazily only when explicitly
+requested; scalar failed-leaf metadata remains available without it. The
+benchmark corpus represents both default and diagnostic modes.
 
 ## Profiling before optimization
 
@@ -164,14 +167,14 @@ The initial benchmark work must provide:
 
 - fixed, versioned SAT and UNSAT cases;
 - small, medium, and large regions;
-- Yang-Zhang reductions and generic Wang regions;
+- Yang–Zhang reductions and generic Wang regions;
 - propagation-heavy and backtracking-heavy cases;
 - solver-only timing with `Region` construction outside the measured section;
 - separate end-to-end timing for builder, solver, and verifier;
 - elapsed time, peak resident memory, and the existing solver metrics;
 - compiler, flags, commit, host, and repetition metadata.
 
-Authoritative measurements use the portable `-O2` build on `padova-server`.
+Authoritative measurements use the portable `-O2` build on the benchmark host.
 Host-specific flags such as `-march=native` may be investigated later as a
 separate profile, not silently folded into the baseline. Timing thresholds do
 not belong in CI; CI may run correctness and benchmark-smoke checks only.
@@ -231,28 +234,21 @@ general enough to preserve all unexplored continuations.
 Progressive, invalidatable rendering may be explored separately. It must not
 be confused with releasing final solver state.
 
-## Implementation sequence
+## Optimization progression
 
-1. Make the UNSAT best snapshot explicitly opt-in and verify the revised
-   contract. (Complete.)
-2. Add the benchmark harness and fixed corpus without optimizing the solver.
-   (Complete.)
-3. Record the reference baseline in default and diagnostic modes. (Complete.)
-4. Profile allocation, initialization, propagation, MRV, trail, rollback, and
-   verification costs. (Complete, including the post-T67 direct
-   duplicate-queue and repeated trail-write counters.)
-5. Extract only the measured execution boundary needed by the performance
-   path. (Complete: the validated Wang core is shared.)
-6. Add the performance path with no semantic shortcut and establish initial
-   differential coverage. (Complete.)
-7. Apply one measured optimization at a time. (In progress: dynamic DFS
-   storage, initial-propagation trail removal, SAT result ownership transfer,
-   byte-wise support aggregation, and optimized queue deduplication are
-   complete as isolated mechanisms.)
-8. Introduce TaskPlan and OpenMP inside the performance path only if their
-   evidence gates are met.
-9. Revisit streaming, cancellation, resource budgets, and more speculative
-   scheduling only after the profiling phase.
+The work progressed from an opt-in UNSAT snapshot contract to a fixed corpus
+and reference baseline, then profiled allocation, initialization, propagation,
+MRV, trail, rollback, and verification costs. The validated Wang core was
+shared before the optimized entry point diverged in private mechanisms.
+
+Five isolated mechanisms are now retained: dynamic DFS storage,
+initial-propagation trail removal, SAT result ownership transfer, byte-wise
+support aggregation, and optimized queue deduplication. Each has a dated report
+with direct-work evidence and corpus-wide controls.
+
+`TaskPlan` and OpenMP remain conditional on their own evidence gates. Streaming,
+cancellation, resource budgets, and speculative scheduling remain outside the
+measured serial scope.
 
 ## Current implementation status
 
@@ -275,7 +271,7 @@ After the first five isolated performance mechanisms:
   may enqueue the cell again. The reference FIFO continues to accept
   duplicates;
 - differential tests cover generic Wang SAT/UNSAT cases checked by brute
-  force, backtracking, Yang-Zhang reductions checked by a Boolean oracle,
+  force, backtracking, Yang–Zhang reductions checked by a Boolean oracle,
   independently verified SAT witnesses, UNSAT diagnostics, invalid API inputs,
   shallow-stack reservation, growth beyond 8,000 frames, and SAT ownership
   coexistence with failed-leaf tracing and the opt-in diagnostic snapshot. A
@@ -285,7 +281,7 @@ After the first five isolated performance mechanisms:
 - `include/wang/task_plan.h` is empty;
 - the shared core captures the UNSAT diagnostic snapshot lazily and only when
   explicitly requested;
-- `benchmarks/` contains the fixed generic and Yang-Zhang corpus and a
+- `benchmarks/` contains the fixed generic and Yang–Zhang corpus and a
   reproducible portable `-O2` runner selectable between reference and
   optimized entry points;
 - `benchmarks/python/compare_solvers.py` runs native reference, native
@@ -293,22 +289,27 @@ After the first five isolated performance mechanisms:
   `.cm13` inputs. It keeps prepared-Region timing separate from the
   file-to-verified-decision view and records raw samples and timeout-aware
   summaries as JSON Lines;
-- `solver_reference_profile_2026-08-17.md` records timing, peak RSS, solver
+- the [reference profile]({{ '/solver_reference_profile_2026-08-17/' | relative_url }})
+  records timing, peak RSS, solver
   metrics, and Callgrind/Cachegrind attribution;
-- `solver_sat_ownership_2026-08-20.md` records direct final-copy bytes,
+- the [SAT ownership report]({{ '/solver_sat_ownership_2026-08-20/' | relative_url }})
+  records direct final-copy bytes,
   allocation/RSS behavior, comparable timing, and lifetime checks;
-- `solver_byte_support_2026-08-20.md` records direct support-work counters,
+- the [byte-support report]({{ '/solver_byte_support_2026-08-20/' | relative_url }})
+  records direct support-work counters,
   exhaustive table validation, comparable timing, and the rejected runtime
   validation experiment;
-- `solver_queue_trail_profile_2026-08-20.md` records the direct pending queue,
+- the [queue and trail profile]({{ '/solver_queue_trail_profile_2026-08-20/' | relative_url }})
+  records the direct pending queue,
   repeated trail-write, Callgrind, and Cachegrind evidence. It selects queue
-  deduplication as the next isolated packet, keeps MRV indexing as the distinct
+  deduplication as the next isolated mechanism, keeps MRV indexing as the distinct
   weakly constrained candidate, and rejects trail compaction for now;
-- `solver_queue_dedup_2026-08-20.md` records the retained packed pending index,
+- the [queue-deduplication report]({{ '/solver_queue_dedup_2026-08-20/' | relative_url }})
+  records the retained packed pending index,
   direct scheduling work, native timings, memory, and post-change profiler
   attribution;
 - MRV indexing, trail compaction, `TaskPlan`, and operational OpenMP are not
   implemented yet.
 
-These facts are intentional starting conditions, not claims that the accepted
-performance architecture is already implemented.
+These facts distinguish the implemented serial mechanisms from the still
+unimplemented parallel architecture.

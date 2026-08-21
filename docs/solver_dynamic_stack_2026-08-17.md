@@ -3,11 +3,14 @@ layout: page
 title: Optimized solver dynamic DFS stack
 permalink: /solver_dynamic_stack_2026-08-17/
 description: Evidence for the optimized solver's geometrically growing DFS stack.
+section: Solver optimization
+document_kind: Benchmark report
+status: Accepted mechanism
+updated: 2026-08-17
+nav_order: 30
 ---
 
 # Optimized solver dynamic DFS stack — 17 August 2026
-
-Status: accepted first isolated performance-path mechanism.
 
 This report evaluates only DFS stack storage. The reference path still
 allocates one `SearchFrame` per active cell. The optimized path starts with at
@@ -19,9 +22,8 @@ order, `TaskPlan`, and OpenMP are unchanged.
 
 The measurements used Debian GCC 14.2.0, portable C17 `-O2`, Linux
 `6.12.101+deb13-amd64`, and benchmark schema version 2 on the Ryzen 5 3600
-host. The parent commit is `1c1d4cb621babe3e00dd429e089f8225ddf825ca`;
-the work was intentionally uncommitted when measured, so the relevant file
-hashes are recorded:
+host. The parent commit is `1c1d4cb621babe3e00dd429e089f8225ddf825ca`.
+Relevant measured-source hashes are recorded to make the revision reproducible:
 
 ```text
 02de1022053572f422967d8611582071508c52dd7affff7b1eea8344215080ec  Makefile
@@ -52,7 +54,7 @@ pages reserved by `malloc` and never touched.
 
 Differential coverage adds:
 
-- a six-variable satisfiable Yang-Zhang region whose reference stack reserves
+- a six-variable satisfiable Yang–Zhang region whose reference stack reserves
   all 9,345 active-cell frames while the optimized stack stays at 16;
 - a 9,216-cell unconstrained region whose optimized search reaches depth 9,059
   and grows safely to the full 9,216-frame limit;
@@ -70,10 +72,10 @@ All non-stack work metrics were identical between paths.
 | generic forced thin SAT | 0 | 0 | 0 | 0 | 0 |
 | generic root UNSAT | 0 | 0 | 0 | 0 | 0 |
 | generic unconstrained SAT | 9,059 | 9,216 | 9,216 | 221,184 | 221,184 |
-| Yang-Zhang SAT, 6 variables | 4 | 9,345 | 16 | 224,280 | 384 |
-| Yang-Zhang UNSAT, 6 variables | 0 | 2,560 | 16 | 61,440 | 384 |
-| Yang-Zhang SAT, 12 variables | 8 | 76,247 | 16 | 1,829,928 | 384 |
-| Yang-Zhang UNSAT, 12 variables | 0 | 20,317 | 16 | 487,608 | 384 |
+| Yang–Zhang SAT, 6 variables | 4 | 9,345 | 16 | 224,280 | 384 |
+| Yang–Zhang UNSAT, 6 variables | 0 | 2,560 | 16 | 61,440 | 384 |
+| Yang–Zhang SAT, 12 variables | 8 | 76,247 | 16 | 1,829,928 | 384 |
+| Yang–Zhang UNSAT, 12 variables | 0 | 20,317 | 16 | 487,608 | 384 |
 
 The large satisfiable case therefore removes 1,829,544 bytes of unused DFS
 stack reservation, a 4,765-fold capacity reduction. The deep unconstrained
@@ -89,10 +91,10 @@ iteration count with metrics disabled:
 | generic forced thin SAT | 4.496257 | 4.472838 | -0.52% |
 | generic root UNSAT | 20.640026 | 20.228229 | -2.00% |
 | generic unconstrained SAT | 171.536229 | 169.060998 | -1.44% |
-| Yang-Zhang SAT, 6 variables | 10.386034 | 10.249726 | -1.31% |
-| Yang-Zhang UNSAT, 6 variables | 2.504592 | 2.564347 | +2.39% |
-| Yang-Zhang SAT, 12 variables | 77.385314 | 79.358104 | +2.55% |
-| Yang-Zhang UNSAT, 12 variables | 20.701713 | 20.484570 | -1.05% |
+| Yang–Zhang SAT, 6 variables | 10.386034 | 10.249726 | -1.31% |
+| Yang–Zhang UNSAT, 6 variables | 2.504592 | 2.564347 | +2.39% |
+| Yang–Zhang SAT, 12 variables | 77.385314 | 79.358104 | +2.55% |
+| Yang–Zhang UNSAT, 12 variables | 20.701713 | 20.484570 | -1.05% |
 
 The large UNSAT row uses a follow-up set of 15 alternating runs because its
 first five-run sample showed a noisy +5.78 percent. The follow-up ranges were
@@ -110,4 +112,4 @@ tests, and absence of a timing regression are the acceptance evidence.
 Retain dynamic DFS storage in `wang_solve_optimized()`. It removes a proven
 large unused reservation in shallow propagation-heavy searches, grows safely
 for deep generic searches, and stays within the predeclared time-regression
-guardrail. The next optimization remains a separate work packet.
+guardrail. Later mechanisms are evaluated independently.
