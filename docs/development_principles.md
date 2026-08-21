@@ -45,12 +45,12 @@ verification. They do not decide correctness.
 
 ## Python ownership and oracle boundaries
 
-The current Python layer contains immutable `Formula` and `Region` models, an
-independent Boolean witness checker, an implemented Boolean Z3 solver, and
-tested native formula and region adapters over `libwang.so`. The second native
-consumer justifies a private shared-library loader. A reduction adapter parses
-once, builds the native Yang–Zhang region while the C formula remains alive,
-and returns fully Python-owned copies. There is currently no Wang Z3 encoding.
+The current Python layer contains immutable `Formula`, `Region`, and atomic
+tileset models; independent Boolean and Wang witness checkers; implemented
+Boolean and Wang Z3 solvers; and tested native formula and region adapters over
+`libwang.so`. The second native consumer justifies a private shared-library
+loader. A reduction adapter parses once, builds the native Yang–Zhang region
+while the C formula remains alive, and returns fully Python-owned copies.
 
 Dependencies flow in one direction:
 
@@ -67,10 +67,10 @@ Dependencies flow in one direction:
           native/formula_adapter.py  native/region_adapter.py
                         |                   |
                         v                   v
-                model/formula.py      model/region.py
-                    /       \                 |
-                   v         v                v
-     boolean_solver.py  witness_check.py  future Wang Z3
+                model/formula.py      model/region.py <--- model/tileset.py
+                    /       \                 |                |
+                   v         v                v                v
+     boolean_solver.py  witness_check.py  tiling_solver.py  tiling_check.py
 ```
 
 Forbidden dependencies are equally explicit:
@@ -78,8 +78,11 @@ Forbidden dependencies are equally explicit:
 ```text
 boolean_solver.py  -X-> native/formula_adapter.py, ctypes, filesystem
 witness_check.py   -X-> Z3, ctypes, C ABI
+tiling_solver.py   -X-> native adapters, ctypes, filesystem, formula semantics
+tiling_check.py    -X-> Z3, native adapters, ctypes, C ABI
 model/formula.py   -X-> ctypes, CDLL, filesystem, Z3
 model/region.py    -X-> ctypes, CDLL, filesystem, Z3
+model/tileset.py   -X-> ctypes, CDLL, filesystem, Z3
 ```
 
 The native adapter is an ownership boundary. It must copy the complete C
@@ -134,14 +137,16 @@ There are two distinct oracle contracts:
 - Boolean Z3 (implemented): `Formula -> Boolean constraints ->
   SAT/UNSAT/UNKNOWN` and an assignment only for SAT. It performs no parsing,
   I/O, ctypes work, region construction, or reduction.
-- Wang Z3: `Region + canonical TILESET -> tiling constraints ->
-  SAT/UNSAT/UNKNOWN` and a tiling only for SAT. It receives the same concrete
-  region as the native solver; it must not rebuild Yang-Zhang independently.
+- Wang Z3 (implemented): `Region + canonical TILESET -> tiling constraints ->
+  SAT/UNSAT/UNKNOWN` and a dense tiling only for SAT. It receives the same
+  concrete region as the native solver and does not rebuild Yang-Zhang.
 
 The Boolean witness checker remains pure Python and counts clause positions,
-not unique variables: `(x, x, y)` counts `x` twice. Verifiers never depend on
-the solver they check. Reverse marshalling and further model layers remain
-forbidden until concrete consumers justify them.
+not unique variables: `(x, x, y)` counts `x` twice. The Wang checker separately
+validates dense storage, boundaries, and both adjacency orientations without
+importing Z3. Verifiers never depend on the solver they check. Reverse
+marshalling and further model layers remain forbidden until concrete consumers
+justify them.
 
 ## Minimal Region direction
 
@@ -178,8 +183,8 @@ connected instances, and its tests must verify that property.
 5. Solver-level regression tests for the explicit forwarder bands, atomic
    anchor/crossover gadgets, whole crossover blocks, composed chains,
    deterministic fuzz cases, and large volumes (complete).
-6. Z3 Boolean cross-checks on small regression instances and the Python region
-   ownership boundary (complete); Wang tiling cross-checks follow.
+6. Z3 Boolean and Wang cross-checks on shared SAT/UNSAT instances, independent
+   Python witness checks, and the Python region ownership boundary (complete).
 7. OpenMP planning only after the serial solver is stable and profiled.
 8. Square-to-hex verification, JSON, and rendering after the square core.
 

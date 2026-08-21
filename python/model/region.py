@@ -2,9 +2,8 @@
 
 from dataclasses import dataclass
 
+from model.tileset import COLOR_COUNT, COLOR_NONE
 
-COLOR_COUNT = 16
-COLOR_NONE = 255
 _DIRECTION_OFFSETS = ((0, -1), (1, 0), (0, 1), (-1, 0))
 
 

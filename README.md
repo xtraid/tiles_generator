@@ -135,7 +135,7 @@ tileability.
 
 ## Current status
 
-Implemented and tested as of 20 August 2026:
+Implemented and tested as of 21 August 2026:
 
 - canonical static definition of the 23 atomic Wang tiles;
 - generalized-tile family metadata kept outside solver semantics;
@@ -175,43 +175,44 @@ Implemented and tested as of 20 August 2026:
 - immutable pure Python formula and dense region data, including canonical
   row-major storage, active masks, color domains, and boundary-placement
   validation;
-- an independent Boolean witness checker and Boolean Z3 oracle that preserve
-  repeated clause positions, with SAT and UNSAT regression cases;
+- an immutable Python copy of all 23 atomic tile edge tuples, checked against
+  the native `TILESET` symbol without importing ctypes into models or oracles;
+- independent Boolean and Wang witness checkers plus Z3 oracles: the Boolean
+  path preserves repeated clause positions, while the Wang path consumes the
+  copied `Region`, enforces boundary and oriented adjacency constraints, and
+  returns a dense tiling only for SAT;
 - a shared `libwang.so` build and tested C-to-Python formula and region
   adapters that copy results into immutable Python storage, report native
   parser status and source locations, and close every native lifetime before
   returning;
 - a native reduction coordinator that parses once and branches from the live
   C formula to the Python formula copy and Yang–Zhang region builder;
-- shared SAT/UNSAT `.cm13` fixtures exercised through both implemented
+- shared SAT/UNSAT `.cm13` fixtures exercised through all implemented
   end-to-end branches: native parser to Yang–Zhang region, serial solver, and
-  verifier; and native parser to Python copy, Boolean Z3, and witness checker;
+  verifier; native parser to Python formula copy, Boolean Z3, and witness
+  checker; and the same copied region through Wang Z3 and its independent
+  checker;
 - C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
   ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
 Not implemented yet:
 
 - native OpenMP solver;
-- Wang Z3 tiling model;
 - square-to-hex translation and verification;
 - JSON export and renderer integration.
-
-The Wang Z3 module is a scaffold; the Boolean Z3 oracle is implemented.
 
 ## Next milestones
 
 Development proceeds through small, testable modules:
 
-1. add a canonical Python tileset representation and Wang Z3 cross-checks over
-   the completed Python `Region` model;
-2. continue isolated performance-path changes after the completed dynamic DFS
+1. continue isolated performance-path changes after the completed dynamic DFS
    storage, initial-trail removal, SAT ownership transfer, and byte-wise
    support table and queue deduplication;
-3. evaluate MRV indexing independently for weakly constrained search;
-4. evaluate propagation scheduling and OpenMP only after the serial mechanisms
+2. evaluate MRV indexing independently for weakly constrained search;
+3. evaluate propagation scheduling and OpenMP only after the serial mechanisms
    meet their gates;
-5. implement and verify the square-to-hex translation;
-6. stabilize JSON and renderer integration last.
+4. implement and verify the square-to-hex translation;
+5. stabilize JSON and renderer integration last.
 
 The implementation follows a deliberately small design rule: each datum has one
 owner, derived state is computed when needed, and future metadata is not added to
@@ -276,9 +277,9 @@ legacy/          frozen experimental code
 
 The C parser is canonical for native input. Native adapters copy data into
 Python-owned models and never expose C pointers. Oracles accept models rather
-than paths: the Boolean oracle consumes `Formula`, while the planned Wang
-oracle consumes `Region + TILESET`. The Boolean witness checker is pure Python
-and independent of Z3. Python does not duplicate parsing or the Yang-Zhang
+than paths: the Boolean oracle consumes `Formula`, while the Wang oracle
+consumes `Region + TILESET`. Both witness checkers are pure Python and
+independent of Z3. Python does not duplicate parsing or the Yang-Zhang
 reduction.
 
 ## Documentation
