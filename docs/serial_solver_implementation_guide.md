@@ -403,10 +403,8 @@ and closes the descriptor.
 Setup failures after file creation unlink the path. Finalization also unlinks
 the path when synchronization, unmapping, final truncation, or close fails.
 Record output itself is a checked write into the mapped range; rejection of an
-impossible record bound is an internal `WANG_SOLVE_ERROR`. The current generic
-state cleanup then finalizes the active mapping, so the implementation does not
-establish the same unlink guarantee for that internal bounds-rejection path.
-Such a file has no valid status as a completed solver trace.
+impossible record bound marks the writer failed, returns an internal
+`WANG_SOLVE_ERROR`, and causes finalization to unlink the incomplete trace.
 
 The writer is private to the serial solver module. It is not a general
 serialization API and has no shared-writer or multithreaded contract.
