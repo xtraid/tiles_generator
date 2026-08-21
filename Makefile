@@ -53,6 +53,7 @@ PYTHON_TESTS := $(shell find tests/python -type f -name 'test_*.py' -print)
 BENCHMARK_SOURCE := benchmarks/c/bench_solver.c
 BENCHMARK_BIN := $(BUILD_DIR)/benchmarks/c/bench_solver
 BENCHMARK_DEP := $(BENCHMARK_BIN).d
+SOLVER_COMPARISON := benchmarks/python/compare_solvers.py
 
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 SHARED_LIBRARY := $(LIB_DIR)/libwang.so
@@ -60,7 +61,8 @@ OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 
 .PHONY: all setup serial shared openmp check c-check python-check \
 	strict-check sanitizer-check analyzer-check valgrind-check \
-	cachegrind-check benchmark benchmark-smoke clean
+	cachegrind-check benchmark benchmark-smoke benchmark-compare \
+	benchmark-compare-smoke clean
 
 all: serial shared
 
@@ -114,8 +116,23 @@ benchmark-smoke: $(BENCHMARK_BIN)
 	$(BENCHMARK_BIN) \
 		--case generic_backtracking_sat --solver optimized \
 		--iterations 1 --metrics
+	$(BENCHMARK_BIN) \
+		--case pipeline_unsat_solver --iterations 1
+	$(BENCHMARK_BIN) \
+		--case pipeline_unsat_file_to_verified_decision \
+		--solver optimized --iterations 1
 
-check: c-check openmp python-check benchmark-smoke
+benchmark-compare: $(BENCHMARK_BIN) shared
+	$(UV) run --frozen python $(SOLVER_COMPARISON) \
+		--preset smoke --samples 7 --iterations 1 \
+		--timeout-seconds 30 --c-flags "$(CFLAGS)"
+
+benchmark-compare-smoke: $(BENCHMARK_BIN) shared
+	$(UV) run --frozen python $(SOLVER_COMPARISON) \
+		--case pipeline_unsat --samples 1 --iterations 1 \
+		--timeout-seconds 30 --c-flags "$(CFLAGS)"
+
+check: c-check openmp python-check benchmark-smoke benchmark-compare-smoke
 
 c-check: serial $(C_TEST_BINS)
 	@set -e; \
@@ -163,6 +180,21 @@ valgrind-check:
 		--errors-for-leak-kinds=all \
 		$(BENCHMARK_BIN) \
 		--case generic_backtracking_sat --iterations 1 --metrics
+	$(VALGRIND) \
+		--error-exitcode=1 \
+		--leak-check=full \
+		--show-leak-kinds=all \
+		--errors-for-leak-kinds=all \
+		$(BENCHMARK_BIN) \
+		--case pipeline_unsat_solver --iterations 1
+	$(VALGRIND) \
+		--error-exitcode=1 \
+		--leak-check=full \
+		--show-leak-kinds=all \
+		--errors-for-leak-kinds=all \
+		$(BENCHMARK_BIN) \
+		--case pipeline_unsat_file_to_verified_decision \
+		--solver optimized --iterations 1
 
 cachegrind-check:
 	$(MAKE) clean

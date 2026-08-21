@@ -89,6 +89,15 @@ on large UNSAT (-19.46%). Processed arcs fell by 35.8--39.2 percent; the packed
 index occupied 9,536 bytes on large SAT and was not allocated for root-conflict
 or no-arc controls. The unconstrained control remained MRV-bound at +0.09%.
 
+The first seven-sample cross-engine smoke baseline, pinned to one Ryzen 5 3600
+logical CPU, measured the complete-file SAT medians at 0.549 ms for C reference,
+0.187 ms for C optimized, 6.988 ms for direct Boolean Z3, and 10.787 s for Wang
+Z3. In the prepared-Region view the corresponding native medians were 0.504 and
+0.142 ms, while Wang Z3 took 10.794 s. These are host-specific smoke results;
+Boolean Z3 solves the original formula rather than the Wang region, so its row
+is not a speedup claim. The much faster UNSAT rows use deliberately shallow
+contradictions, not hard UNSAT search.
+
 ## Goal
 
 The intended end-to-end pipeline is:
@@ -192,6 +201,9 @@ Implemented and tested as of 21 August 2026:
   verifier; native parser to Python formula copy, Boolean Z3, and witness
   checker; and the same copied region through Wang Z3 and its independent
   checker;
+- a JSON Lines comparison suite over fixed `.cm13` inputs, with separate
+  prepared-Region and file-to-verified-decision scopes for the native
+  reference, native optimized, Boolean Z3, and Wang Z3 paths;
 - C17/OpenMP build scaffold and GitHub Actions CI with strict GCC/Clang,
   ASan, UBSan, GCC static analysis, Memcheck, and Cachegrind paths.
 
@@ -247,6 +259,8 @@ make analyzer-check
 make valgrind-check
 make cachegrind-check
 make benchmark
+make benchmark-compare-smoke
+make benchmark-compare
 ```
 
 `make benchmark` builds the portable `-O2` harness and runs the reference path
@@ -254,6 +268,13 @@ over the versioned generic and Yang-Zhang corpus in separate timing,
 single-solve RSS, and metrics passes. Individual cases accept
 `--solver reference|optimized`; reference is the default. Results are
 host-specific evidence, not CI pass/fail thresholds.
+
+`make benchmark-compare` runs seven fresh-process samples over the smallest
+shared SAT/UNSAT `.cm13` corpus. It separates the direct Wang-region comparison
+from the file-to-verified-decision view so the direct Boolean oracle is not
+presented as if it solved a `Region`. The smoke target runs the smallest UNSAT
+case once; the extended presets and JSON Lines capture command are documented in
+[`docs/solver_comparison_benchmark.md`](docs/solver_comparison_benchmark.md).
 
 ## Repository layout
 
@@ -328,6 +349,13 @@ reduction.
   records the packed optimized pending index, direct queue/arc reductions,
   alternating timing and RSS gates, and post-change Callgrind/Cachegrind
   attribution.
+- [`docs/solver_comparison_benchmark.md`](docs/solver_comparison_benchmark.md)
+  defines the fixed cross-engine corpus, the two comparable timing scopes,
+  fresh-process execution, timeout handling, JSON Lines schema, and
+  interpretation limits for native and Z3 measurements.
+- [`docs/solver_comparison_smoke_2026-08-21.md`](docs/solver_comparison_smoke_2026-08-21.md)
+  records the first seven-sample CPU-pinned baseline, complete ranges and RSS,
+  the shallow-UNSAT explanation, and the six-variable Wang Z3 timeout pilot.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

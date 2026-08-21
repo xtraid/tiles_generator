@@ -3,6 +3,7 @@
 #include "wang/solver.h"
 
 #include "wang/formula.h"
+#include "wang/formula_parser.h"
 #include "wang/region.h"
 #include "wang/yang_zhang.h"
 
@@ -23,12 +24,14 @@ typedef enum {
     BENCH_GENERIC_BACKTRACKING,
     BENCH_GENERIC_ROOT_UNSAT,
     BENCH_YANG_ZHANG_SAT,
-    BENCH_YANG_ZHANG_UNSAT
+    BENCH_YANG_ZHANG_UNSAT,
+    BENCH_CM13_FILE
 } BenchmarkKind;
 
 typedef enum {
     BENCH_SOLVER_ONLY,
-    BENCH_END_TO_END
+    BENCH_END_TO_END,
+    BENCH_FILE_TO_VERIFIED_DECISION
 } BenchmarkScope;
 
 typedef enum {
@@ -43,13 +46,13 @@ typedef struct {
     WangSolveStatus expected_status;
     size_t default_iterations;
     uint32_t variable_count;
+    const char *input_path;
 } BenchmarkSpec;
 
 typedef struct {
     Region region;
     YangZhangReduction reduction;
     Cm13Formula formula;
-    Cm13Clause *clauses;
     bool owns_region;
     bool owns_reduction;
 } BenchmarkFixture;
@@ -154,6 +157,102 @@ static const BenchmarkSpec BENCHMARKS[] = {
         .default_iterations = 10,
         .variable_count = 12,
     },
+    {
+        .name = "pipeline_sat_solver",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 1,
+        .input_path = "tests/instances/pipeline_sat.cm13",
+    },
+    {
+        .name = "pipeline_unsat_solver",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_UNSAT,
+        .default_iterations = 1,
+        .input_path = "tests/instances/pipeline_unsat.cm13",
+    },
+    {
+        .name = "pipeline_sat_file_to_verified_decision",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_FILE_TO_VERIFIED_DECISION,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 1,
+        .input_path = "tests/instances/pipeline_sat.cm13",
+    },
+    {
+        .name = "pipeline_unsat_file_to_verified_decision",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_FILE_TO_VERIFIED_DECISION,
+        .expected_status = WANG_SOLVE_UNSAT,
+        .default_iterations = 1,
+        .input_path = "tests/instances/pipeline_unsat.cm13",
+    },
+    {
+        .name = "yang_zhang_sat_6_file_solver",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_sat_6.cm13",
+    },
+    {
+        .name = "yang_zhang_unsat_6_file_solver",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_UNSAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_unsat_6.cm13",
+    },
+    {
+        .name = "yang_zhang_sat_6_file_to_verified_decision",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_FILE_TO_VERIFIED_DECISION,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_sat_6.cm13",
+    },
+    {
+        .name = "yang_zhang_unsat_6_file_to_verified_decision",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_FILE_TO_VERIFIED_DECISION,
+        .expected_status = WANG_SOLVE_UNSAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_unsat_6.cm13",
+    },
+    {
+        .name = "yang_zhang_sat_12_file_solver",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_sat_12.cm13",
+    },
+    {
+        .name = "yang_zhang_unsat_12_file_solver",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_SOLVER_ONLY,
+        .expected_status = WANG_SOLVE_UNSAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_unsat_12.cm13",
+    },
+    {
+        .name = "yang_zhang_sat_12_file_to_verified_decision",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_FILE_TO_VERIFIED_DECISION,
+        .expected_status = WANG_SOLVE_SAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_sat_12.cm13",
+    },
+    {
+        .name = "yang_zhang_unsat_12_file_to_verified_decision",
+        .kind = BENCH_CM13_FILE,
+        .scope = BENCH_FILE_TO_VERIFIED_DECISION,
+        .expected_status = WANG_SOLVE_UNSAT,
+        .default_iterations = 1,
+        .input_path = "benchmarks/instances/yang_zhang_unsat_12.cm13",
+    },
 };
 
 static void fixture_destroy(BenchmarkFixture *fixture)
@@ -167,7 +266,7 @@ static void fixture_destroy(BenchmarkFixture *fixture)
     if (fixture->owns_region) {
         region_destroy(&fixture->region);
     }
-    free(fixture->clauses);
+    cm13_formula_destroy(&fixture->formula);
     *fixture = (BenchmarkFixture){0};
 }
 
@@ -268,8 +367,11 @@ static bool build_formula(
         return false;
     }
 
-    fixture->clauses = calloc(variable_count, sizeof(*fixture->clauses));
-    if (fixture->clauses == NULL) {
+    fixture->formula.clauses = calloc(
+        variable_count,
+        sizeof(*fixture->formula.clauses)
+    );
+    if (fixture->formula.clauses == NULL) {
         return false;
     }
 
@@ -277,7 +379,7 @@ static bool build_formula(
         for (uint32_t group = 0; group < variable_count / 3u; ++group) {
             const uint32_t first = 3u * group;
             for (uint32_t repeat = 0; repeat < 3u; ++repeat) {
-                fixture->clauses[3u * group + repeat] = (Cm13Clause){
+                fixture->formula.clauses[3u * group + repeat] = (Cm13Clause){
                     .variable_index = { first, first + 1u, first + 2u },
                 };
             }
@@ -285,20 +387,17 @@ static bool build_formula(
     } else {
         for (uint32_t pair = 0; pair < variable_count / 2u; ++pair) {
             const uint32_t first = 2u * pair;
-            fixture->clauses[2u * pair] = (Cm13Clause){
+            fixture->formula.clauses[2u * pair] = (Cm13Clause){
                 .variable_index = { first, first, first + 1u },
             };
-            fixture->clauses[2u * pair + 1u] = (Cm13Clause){
+            fixture->formula.clauses[2u * pair + 1u] = (Cm13Clause){
                 .variable_index = { first, first + 1u, first + 1u },
             };
         }
     }
 
-    fixture->formula = (Cm13Formula){
-        .variable_count = variable_count,
-        .clauses = fixture->clauses,
-        .clause_count = variable_count,
-    };
+    fixture->formula.variable_count = variable_count;
+    fixture->formula.clause_count = variable_count;
     return true;
 }
 
@@ -333,6 +432,20 @@ static bool prepare_fixture(
             }
             fixture->owns_reduction = true;
         }
+        return true;
+    case BENCH_CM13_FILE:
+        if (spec->scope == BENCH_FILE_TO_VERIFIED_DECISION) {
+            return true;
+        }
+        if (cm13_formula_load_path(
+                spec->input_path,
+                &fixture->formula,
+                NULL
+            ) != CM13_PARSE_OK ||
+            !yang_zhang_build(&fixture->formula, &fixture->reduction)) {
+            return false;
+        }
+        fixture->owns_reduction = true;
         return true;
     }
     return false;
@@ -466,6 +579,34 @@ static bool elapsed_nanoseconds(
     return true;
 }
 
+static long process_peak_rss_kib(
+    const struct rusage *usage,
+    const char **out_source
+)
+{
+    FILE *status = fopen("/proc/self/status", "r");
+    if (status != NULL) {
+        char line[256];
+        while (fgets(line, sizeof(line), status) != NULL) {
+            long value = 0;
+            if (sscanf(line, "VmHWM: %ld kB", &value) == 1 && value >= 0) {
+                fclose(status);
+                *out_source = "proc-vmhwm";
+                return value;
+            }
+        }
+        fclose(status);
+    }
+
+#if defined(__APPLE__)
+    *out_source = "getrusage-macos-normalized";
+    return usage->ru_maxrss / 1024;
+#else
+    *out_source = "getrusage";
+    return usage->ru_maxrss;
+#endif
+}
+
 static bool solve_once(
     const BenchmarkSpec *spec,
     const Region *region,
@@ -491,6 +632,19 @@ static bool solve_once(
     }
     wang_solve_result_destroy(&result);
     return valid;
+}
+
+static const char *benchmark_scope_name(BenchmarkScope scope)
+{
+    switch (scope) {
+    case BENCH_SOLVER_ONLY:
+        return "solver-only";
+    case BENCH_END_TO_END:
+        return "end-to-end";
+    case BENCH_FILE_TO_VERIFIED_DECISION:
+        return "file-to-verified-decision";
+    }
+    return "unknown";
 }
 
 static bool run_benchmark(
@@ -531,6 +685,9 @@ static bool run_benchmark(
     for (size_t iteration = 0; iteration < iterations; ++iteration) {
         WangSolverMetrics metrics = {0};
         YangZhangReduction reduction = {0};
+        Cm13Formula iteration_formula = {0};
+        bool owns_iteration_formula = false;
+        bool owns_iteration_reduction = false;
 
         if (spec->scope == BENCH_END_TO_END) {
             if (!yang_zhang_build(&fixture.formula, &reduction)) {
@@ -538,13 +695,38 @@ static bool run_benchmark(
                 return false;
             }
             region = &reduction.region;
-            if (iteration == 0) {
-                cell_count = region->cell_count;
-                active_count = active_cell_count(region);
+            owns_iteration_reduction = true;
+        } else if (spec->scope == BENCH_FILE_TO_VERIFIED_DECISION) {
+            if (cm13_formula_load_path(
+                    spec->input_path,
+                    &iteration_formula,
+                    NULL
+                ) != CM13_PARSE_OK) {
+                fixture_destroy(&fixture);
+                return false;
             }
+            owns_iteration_formula = true;
+            if (!yang_zhang_build(&iteration_formula, &reduction)) {
+                cm13_formula_destroy(&iteration_formula);
+                fixture_destroy(&fixture);
+                return false;
+            }
+            owns_iteration_reduction = true;
+            region = &reduction.region;
+        }
+
+        if (iteration == 0 && region != NULL) {
+            cell_count = region->cell_count;
+            active_count = active_cell_count(region);
         }
 
         if (region == NULL) {
+            if (owns_iteration_reduction) {
+                yang_zhang_reduction_destroy(&reduction);
+            }
+            if (owns_iteration_formula) {
+                cm13_formula_destroy(&iteration_formula);
+            }
             fixture_destroy(&fixture);
             return false;
         }
@@ -557,8 +739,11 @@ static bool run_benchmark(
             solver,
             &metrics
         );
-        if (spec->scope == BENCH_END_TO_END) {
+        if (owns_iteration_reduction) {
             yang_zhang_reduction_destroy(&reduction);
+        }
+        if (owns_iteration_formula) {
+            cm13_formula_destroy(&iteration_formula);
         }
         if (!solved) {
             fixture_destroy(&fixture);
@@ -585,12 +770,18 @@ static bool run_benchmark(
         fixture_destroy(&fixture);
         return false;
     }
+    const char *peak_rss_source = NULL;
+    const long peak_rss_kib = process_peak_rss_kib(
+        &usage,
+        &peak_rss_source
+    );
 
     printf(
-        "benchmark_version=7 case=%s solver=%s scope=%s expected=%s "
+        "benchmark_version=8 case=%s solver=%s scope=%s expected=%s "
         "iterations=%zu metrics=%u capture_unsat=%u "
         "elapsed_ns=%" PRIu64 " ns_per_iteration=%" PRIu64 " "
-        "max_rss_kib=%ld cells=%zu active=%zu "
+        "process_peak_rss_kib=%ld peak_rss_source=%s "
+        "cells=%zu active=%zu "
         "dfs_nodes=%" PRIu64 " decisions=%" PRIu64 " "
         "backtracks=%" PRIu64 " failed_leaves=%" PRIu64 " "
         "domain_reductions=%" PRIu64 " propagated_arcs=%" PRIu64 " "
@@ -611,14 +802,15 @@ static bool run_benchmark(
         "max_depth=%zu sat_result_copy_bytes=%zu\n",
         spec->name,
         solver == BENCH_REFERENCE_SOLVER ? "reference" : "optimized",
-        spec->scope == BENCH_SOLVER_ONLY ? "solver-only" : "end-to-end",
+        benchmark_scope_name(spec->scope),
         spec->expected_status == WANG_SOLVE_SAT ? "SAT" : "UNSAT",
         iterations,
         collect_metrics ? 1u : 0u,
         capture_unsat ? 1u : 0u,
         elapsed,
         elapsed / iterations,
-        usage.ru_maxrss,
+        peak_rss_kib,
+        peak_rss_source,
         cell_count,
         active_count,
         reference_metrics.dfs_nodes,
@@ -750,11 +942,25 @@ int main(int argc, char **argv)
             print_usage(argv[0]);
             return EXIT_FAILURE;
         }
+        printf("benchmark_version=8 ");
+#if defined(__clang__)
         printf(
-            "benchmark_version=7 compiler=%s c_standard=%ld\n",
-            __VERSION__,
-            (long)__STDC_VERSION__
+            "compiler=clang-%d.%d.%d ",
+            __clang_major__,
+            __clang_minor__,
+            __clang_patchlevel__
         );
+#elif defined(__GNUC__)
+        printf(
+            "compiler=gcc-%d.%d.%d ",
+            __GNUC__,
+            __GNUC_MINOR__,
+            __GNUC_PATCHLEVEL__
+        );
+#else
+        printf("compiler=unknown ");
+#endif
+        printf("c_standard=%ld\n", (long)__STDC_VERSION__);
         return EXIT_SUCCESS;
     }
 

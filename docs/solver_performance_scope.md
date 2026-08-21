@@ -288,6 +288,11 @@ After the first five isolated performance mechanisms:
 - `benchmarks/` contains the fixed generic and Yang-Zhang corpus and a
   reproducible portable `-O2` runner selectable between reference and
   optimized entry points;
+- `benchmarks/python/compare_solvers.py` runs native reference, native
+  optimized, Boolean Z3, and Wang Z3 workers in fresh processes over versioned
+  `.cm13` inputs. It keeps prepared-Region timing separate from the
+  file-to-verified-decision view and records raw samples and timeout-aware
+  summaries as JSON Lines;
 - `solver_reference_profile_2026-08-17.md` records timing, peak RSS, solver
   metrics, and Callgrind/Cachegrind attribution;
 - `solver_sat_ownership_2026-08-20.md` records direct final-copy bytes,
