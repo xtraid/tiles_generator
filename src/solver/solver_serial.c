@@ -10,9 +10,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define WANG_DOMAIN_ALL \
-    ((UINT32_C(1) << TILE_COUNT) - UINT32_C(1))
-
 #ifndef WANG_OPTIMIZED_QUEUE_DEDUP
 #define WANG_OPTIMIZED_QUEUE_DEDUP 1
 #endif
@@ -1039,6 +1036,7 @@ static bool allocate_solver_arrays(SolverState *state)
 
 static bool initialize_domains(
     SolverState *state,
+    const uint32_t *initial_domains,
     size_t *out_initial_conflict
 )
 {
@@ -1058,7 +1056,12 @@ static bool initialize_domains(
             }
 
             ++state->active_count;
-            uint32_t domain = WANG_DOMAIN_ALL;
+            uint32_t domain = initial_domains != NULL
+                ? initial_domains[index]
+                : WANG_DOMAIN_ALL;
+            if (state->collect_metrics && domain != WANG_DOMAIN_ALL) {
+                ++state->metrics.domain_reductions;
+            }
 
             for (Dir dir = N; dir < DIR_COUNT; ++dir) {
                 const RegionCell *neighbor = region_cell_const(
@@ -1161,6 +1164,31 @@ static bool solver_options_are_valid(const WangSolverOptions *options)
     return true;
 }
 
+static bool initial_domains_are_valid(
+    const Region *region,
+    const WangSolverOptions *options
+)
+{
+    if (options == NULL) {
+        return true;
+    }
+    if (options->initial_domains == NULL) {
+        return options->initial_domain_count == 0;
+    }
+    if (options->initial_domain_count != region->cell_count) {
+        return false;
+    }
+
+    for (size_t i = 0; i < region->cell_count; ++i) {
+        const uint32_t mask = options->initial_domains[i];
+        if ((mask & ~WANG_DOMAIN_ALL) != 0 ||
+            (!region->cells[i].active && mask != 0)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void wang_solve_result_destroy(WangSolveResult *result)
 {
     if (result == NULL) {
@@ -1184,6 +1212,9 @@ static WangSolveStatus solve_wang_core(
     }
 
     if (!region_validate(region)) {
+        return WANG_SOLVE_ERROR;
+    }
+    if (!initial_domains_are_valid(region, options)) {
         return WANG_SOLVE_ERROR;
     }
     const size_t cell_count = region->cell_count;
@@ -1223,7 +1254,11 @@ static WangSolveStatus solve_wang_core(
     }
 
     size_t initial_conflict;
-    if (!initialize_domains(&state, &initial_conflict)) {
+    if (!initialize_domains(
+            &state,
+            options != NULL ? options->initial_domains : NULL,
+            &initial_conflict
+        )) {
         solver_state_destroy(&state);
         return WANG_SOLVE_ERROR;
     }

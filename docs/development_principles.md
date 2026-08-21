@@ -35,9 +35,11 @@ Prefer the smallest representation that preserves the required invariants.
 | `yang_zhang` | Reduction-specific construction and the transferred swap trace | Solver state or duplicated permutation data |
 | `verify` | No persistent state; reads a candidate tiling | Search logic |
 | `solver` | Domains, trail, assignments, search state | Reduction semantics |
+| `crosscheck` | Stateless Boolean/Wang witness translation over a live reduction | Generic solver internals, clause validity, or copied swap data |
 | `task_plan` | Future OpenMP dependencies | Region or serial solver ownership |
 | `python/model` | Pure immutable Python data contracts | I/O, ctypes, Z3, or native ownership |
 | `python/native` | C ABI adaptation, native lifetimes, complete copy-out | Solver logic or leaked native pointers |
+| `python/crosscheck` | Scoped orchestration of native adapters, Z3, and independent checkers | Persistent native state or duplicated reduction semantics |
 | `python/oracles` | Independent solver or verifier logic over pure models | Parsing, filesystem I/O, or reduction construction |
 
 The renderer and JSON layer remain downstream from construction, solving, and
@@ -47,10 +49,11 @@ verification. They do not decide correctness.
 
 The current Python layer contains immutable `Formula`, `Region`, and atomic
 tileset models; independent Boolean and Wang witness checkers; implemented
-Boolean and Wang Z3 solvers; and tested native formula and region adapters over
-`libwang.so`. The second native consumer justifies a private shared-library
-loader. A reduction adapter parses once, builds the native Yang–Zhang region
-while the C formula remains alive, and returns fully Python-owned copies.
+Boolean and Wang Z3 solvers; tested native formula, region, and witness adapters
+over `libwang.so`; and a narrow cross-check coordinator. The native consumers
+share one private library loader. A reduction context parses once, keeps the
+native formula and Yang–Zhang reduction alive for bridge calls, and copies only
+fully Python-owned values out.
 
 Dependencies flow in one direction:
 
@@ -61,16 +64,13 @@ Dependencies flow in one direction:
                             libwang.so
                                 |
                                 v
-                   native/reduction_adapter.py
-                         /                 \
-                        v                   v
-          native/formula_adapter.py  native/region_adapter.py
-                        |                   |
-                        v                   v
-                model/formula.py      model/region.py <--- model/tileset.py
-                    /       \                 |                |
-                   v         v                v                v
-     boolean_solver.py  witness_check.py  tiling_solver.py  tiling_check.py
+             native adapters + crosscheck coordinator
+                    /              |              \
+                   v               v               v
+          model/formula.py   witness_adapter   model/region.py
+             /        \             |             /       \
+            v          v            v            v         v
+ boolean_solver  witness_check  native bridge  tiling_solver  tiling_check
 ```
 
 Forbidden dependencies are equally explicit:
@@ -92,8 +92,9 @@ may escape. The C API exposes both `cm13_formula_parse(FILE *, ...)` for native
 callers and `cm13_formula_load_path(...)` as the robust external entry point;
 the Python adapter must use the latter and never bind a C `FILE *`.
 
-Do not marshal `Formula` back into `Cm13Formula`. The implemented reduction
-adapter parses once and branches while the native formula is alive:
+Do not marshal `Formula` back into `Cm13Formula`. The implemented cross-check
+coordinator parses once and branches while the native formula and reduction
+are alive:
 
 ```text
                           .cm13
@@ -113,23 +114,26 @@ adapter parses once and branches while the native formula is alive:
                      v               +------------------+
                 assignment                              |
                      |                                  |
-                     v                                  v
-             witness checker                      native Wang solver
-                                                        |
-                                      Region copy ------+
-                                          |
-                                          v
-                                    Wang Z3 oracle
+                     +------> native witness bridge <---+
+                                      |
+                                      v
+                               native Wang solver
+                                      |
+                         Region copy + tiling copy
+                             /                  \
+                            v                    v
+                    Python checkers         Wang Z3 oracle
 ```
 
-The coordinating adapter must use `finally` cleanup to destroy the C region
-and then the C formula after the required copies and native operations finish.
+The coordinator must use `finally` cleanup to destroy the C reduction and then
+the C formula after the required copies and native operations finish.
 Both returned Python models are fully Python-owned.
 
 `native/region_adapter.py` copies `Region C` into a pure Python region,
 `native/_lib.py` centralizes lazy loading of the shared `libwang.so`, and
-`native/reduction_adapter.py` coordinates the single native formula lifetime
-shown above. The reduction's swap trace remains native-only because no Python
+`native/reduction_adapter.py` coordinates the copy-only formula/region path,
+while `crosscheck/witness_pipeline.py` keeps the same native lifetime open for
+witness calls. The reduction's swap trace remains native-only because no Python
 consumer needs it.
 
 There are two distinct oracle contracts:
@@ -147,6 +151,34 @@ validates dense storage, boundaries, and both adjacency orientations without
 importing Z3. Verifiers never depend on the solver they check. Reverse
 marshalling and further model layers remain forbidden until concrete consumers
 justify them.
+
+## Witness correspondence boundary
+
+The implemented witness path has three deliberately separate claims:
+
+```text
+decision agreement:
+    independent solvers agree on SAT/UNSAT
+
+witness extension:
+    Boolean validity(a) == native Wang SAT with variable pins(a)
+
+witness extraction:
+    verified Wang tiling -> decoded assignment -> external Boolean checker
+```
+
+The generic solver owns only reusable dense initial domains and never sees a
+formula, assignment, gadget, or Yang–Zhang layout. The native cross-check bridge
+alone knows the three variable-cell coordinates and V0/V1 tile IDs. It borrows
+the exact live builder result, ignores `reduction.swaps`, and neither extension
+nor extraction evaluates clauses. Python coordinates the Boolean Z3 result,
+native bridge, and pure checkers without reconstructing C models or letting a
+ctypes pointer escape.
+
+The correspondence is not a bijection claim. Multiple Wang tilings may encode
+the same satisfying assignment, and solving after extraction need not reproduce
+the original tiling byte for byte. A mismatch remains a copied counterexample;
+it is not rewritten as another solver status.
 
 ## Minimal Region direction
 
@@ -185,8 +217,10 @@ connected instances, and its tests must verify that property.
    deterministic fuzz cases, and large volumes (complete).
 6. Z3 Boolean and Wang cross-checks on shared SAT/UNSAT instances, independent
    Python witness checks, and the Python region ownership boundary (complete).
-7. OpenMP planning only after the serial solver is stable and profiled.
-8. Square-to-hex verification, JSON, and rendering after the square core.
+7. Exact Boolean/Wang witness extension and extraction with exhaustive small
+   assignment-level equivalence (complete).
+8. OpenMP planning only after the serial solver is stable and profiled.
+9. Square-to-hex verification, JSON, and rendering after the square core.
 
 Private compatibility masks now have a concrete consumer in the serial solver
 and remain derived from `TILESET`. `TaskPlan`, zone ownership, diagnostic IR,

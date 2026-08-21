@@ -7,7 +7,8 @@ description: An implementation guide to verification, serial Wang search, diagno
 
 # Technical guide: verifier, serial solver, and leaf trace
 
-Implementation status as of 20 August 2026: this guide has been implemented.
+Implementation status as of 21 August 2026: this guide has been implemented,
+including the later shared initial-domain extension described below.
 The public headers and tests are authoritative where they differ from an
 earlier prospective detail below. The document remains the technical contract
 and maintenance handoff for the module.
@@ -27,7 +28,9 @@ The work includes:
    `UNSAT` only through an explicit diagnostic flag;
 6. an optional binary trace of all failed leaves, written through `mmap` to a
    file with a known maximum capacity and truncated to its actual size on
-   completion.
+   completion;
+7. optional borrowed dense root domains shared by the reference and optimized
+   entry points.
 
 Do not implement in this block:
 
@@ -221,6 +224,10 @@ typedef struct {
     /* Required only with WANG_SOLVE_TRACE_FAILED_LEAVES. */
     const char *failed_leaf_path;
     size_t failed_leaf_capacity;
+
+    /* Optional borrowed dense row-major root domains. */
+    const uint32_t *initial_domains;
+    size_t initial_domain_count;
 } WangSolverOptions;
 
 typedef struct {
@@ -262,9 +269,15 @@ Contract:
 
 - `options == NULL` is equivalent to zero flags;
 - unknown flags are an error;
+- initial domains are absent only as `NULL/0` and present only as a nonnull
+  pointer with `initial_domain_count == region->cell_count`;
+- the array is borrowed and immutable for the solve call: inactive entries are
+  zero, active entries use only `WANG_DOMAIN_ALL` bits, an active zero is a
+  legal contradiction, and `WANG_DOMAIN_ALL` adds no restriction;
 - `out_result` must be zero-initialized or previously destroyed;
 - on `SAT` and `UNSAT`, the caller owns `out_result->domains`;
-- on `ERROR`, the output remains in a fully destroyed state;
+- with a conforming destroyed output, every `ERROR` leaves it destroyed; an
+  already-owned output is itself invalid and is rejected unchanged;
 - `wang_solve_result_destroy()` accepts `NULL`, frees the snapshot, and zeros
   every field;
 - the solver does not create a file unless the trace flag is present;
@@ -374,10 +387,15 @@ Validate the `Region` before allocating the state:
 - no boundary color on inactive cells;
 - no boundary color on an edge with an active neighbor.
 
+Validate the complete optional initial-domain array before allocating solver
+state or interpreting an empty active mask as UNSAT. A malformed later entry
+must therefore produce ERROR even when an earlier active entry is zero.
+
 For each cell:
 
 1. if inactive, set `domain = 0` and `neighbor_mask = 0`;
-2. if active, start from `WANG_DOMAIN_ALL`;
+2. if active, start from the supplied root mask or `WANG_DOMAIN_ALL` when the
+   option is absent;
 3. build the four bits of `neighbor_mask`;
 4. for each exposed edge with color `c != COLOR_NONE`:
 
@@ -387,6 +405,12 @@ domain &= tables.edge_mask[dir][c];
 
 5. count the cell in `resolved_count` if the domain is a singleton;
 6. if the domain becomes zero, there is a failed leaf at depth zero.
+
+Supplied root masks and boundary masks are independent restrictions whose
+intersection defines the initial domain. Root masks do not bypass boundary or
+adjacency checks and do not create rollback entries. A legal mask that becomes
+empty after boundary intersection or propagation is UNSAT, while invalid bits,
+wrong dense storage, or a nonzero inactive entry are ERROR.
 
 A valid region with no active cells is `SAT`: its snapshot contains only
 zeros, but no conflict exists because no cell is active.
@@ -562,7 +586,8 @@ Definitions that must remain stable in tests and documentation:
 - `decisions`: singleton candidates actually tried;
 - `backtracks`: failed candidates that were restored;
 - `failed_leaves`: terminal conflicts observed;
-- `domain_reductions`: writes that actually narrow a domain;
+- `domain_reductions`: writes that actually narrow a domain, including one
+  effective root restriction from `WANG_DOMAIN_ALL` to a supplied active mask;
 - `propagated_arcs`: processed cell-neighbor arcs;
 - `support_tile_visits`: set tile candidates visited by the reference support
   union loop; zero in the optimized byte-wise path;
@@ -771,6 +796,10 @@ Test at least:
 Test at least:
 
 - invalid options and output objects;
+- absent, singleton, multi-bit, zero, and malformed initial-domain arrays
+  through both public entry points, including complete validation before root
+  UNSAT, boundary incompatibility, input immutability, and unchanged
+  unconstrained determinism;
 - a region with no active cells -> `SAT`;
 - a single forced cell -> `SAT`, with the correct singleton domain;
 - a single cell with an impossible boundary -> `UNSAT`, no default snapshot,
@@ -780,6 +809,8 @@ Test at least:
 - small SAT and UNSAT regions compared with an independent brute force in the
   tests;
 - every SAT result accepted by `wang_verify_tiling()`;
+- reference and optimized constrained results compared with a brute-force
+  verifier oracle over deterministic and pseudo-random small masks;
 - determinism: two executions produce the same status and snapshot;
 - metrics all zero without the flag and consistent with the flag;
 - optimized queue deduplication with exact requests, suppressed pending
@@ -789,7 +820,8 @@ Test at least:
 - an unconstrained region exceeding ten thousand decision levels, to exercise
   the explicit DFS stack without depending on the process stack;
 - unmodified input and `Region`;
-- output left in a destroyed state after an error, and idempotent destruction.
+- conforming output left destroyed after an error, already-owned output rejected
+  unchanged, and idempotent destruction.
 
 The brute-force test oracle must enumerate `TileId` values directly on very
 small regions and use the verifier; it must not call the solver or its caches.
@@ -886,7 +918,8 @@ The work package is complete when:
 - the verifier and solver have documented public contracts;
 - the solver returns `SAT`, `UNSAT`, or `ERROR` unambiguously;
 - `SAT` contains singleton domains and passes the independent verifier;
-- `UNSAT` always contains a renderable failed leaf;
+- `UNSAT` always reports failed-leaf metadata and contains a renderable domain
+  snapshot only when `WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT` is requested;
 - the optional mmap trace contains valid records, respects the cap, and is
   truncated to its actual size;
 - metrics remain zero or are populated according to the flag;

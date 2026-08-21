@@ -1,5 +1,6 @@
 """Copy native Wang regions into immutable Python storage."""
 
+from contextlib import contextmanager
 from ctypes import (
     CDLL,
     POINTER,
@@ -12,6 +13,7 @@ from ctypes import (
     c_void_p,
 )
 from functools import cache
+from typing import Iterator
 
 from model.region import Region
 from native._lib import library
@@ -98,7 +100,10 @@ def _copy_region(native_region: _Region) -> Region:
     )
 
 
-def _build_region(native_formula: _Cm13Formula) -> Region:
+@contextmanager
+def _built_reduction(
+    native_formula: _Cm13Formula,
+) -> Iterator[_YangZhangReduction]:
     native_reduction = _YangZhangReduction()
     lib = _region_library()
     try:
@@ -107,6 +112,11 @@ def _build_region(native_formula: _Cm13Formula) -> Region:
             byref(native_reduction),
         ):
             raise RegionBuildError("could not build Yang-Zhang region")
-        return _copy_region(native_reduction.region)
+        yield native_reduction
     finally:
         lib.yang_zhang_reduction_destroy(byref(native_reduction))
+
+
+def _build_region(native_formula: _Cm13Formula) -> Region:
+    with _built_reduction(native_formula) as native_reduction:
+        return _copy_region(native_reduction.region)

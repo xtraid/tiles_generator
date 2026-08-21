@@ -208,3 +208,44 @@ The builder deliberately does not parse text, solve the formula, choose tiles, o
 store gadget annotations in `Region`. Its full implementation contract is recorded
 in `yang_zhang_builder_design.md`; public headers and black-box tests are
 authoritative for implemented behavior.
+
+## 7. Witness-level correspondence
+
+Decision agreement alone compares only whether independent solvers report SAT
+or UNSAT; their preferred satisfying models may be unrelated. The implemented
+witness bridge adds two more concrete operations over the exact
+`YangZhangReduction` built for a live formula:
+
+```text
+Boolean assignment a
+    -> fix the three cells (0, 4v), (0, 4v + 1), (0, 4v + 2)
+       of every variable v
+    -> solve the remaining Wang region
+    -> independently verify the complete tiling
+
+verified Wang tiling
+    -> decode the exact V0_TOP/V0_MID/V0_BOTTOM or V1/V1/V1 pattern
+       in each variable block
+    -> pass the decoded assignment to the independent Boolean checker
+```
+
+False pins the three atomic V0 tiles in order; true pins `TILE_V1` in all
+three positions. Every other active cell begins unrestricted. Forwarders,
+anchors, crossovers, redundant rows, and clause gadgets therefore remain
+consequences of the region boundary, canonical tileset, propagation, and
+search. The bridge neither reads the adjacent-swap trace nor evaluates formula
+clauses.
+
+The executable evidence enumerates all 1,701 canonical formulas through three
+variables, all `2^n` assignments for each formula, and both native solver entry
+points. Across 27,044 constrained solves, direct Boolean witness validity is
+equivalent to Wang SAT under the variable pins. Every SAT result passes the
+independent Wang verifier, extracts the exact input assignment, and satisfies
+the representation correspondence predicate.
+
+This establishes extraction as a left inverse of assignment extension for the
+tested domain. It does not establish a bijection: one satisfying assignment may
+have multiple tilings, and extending an assignment extracted from a tiling need
+not reproduce that tiling byte for byte. Extraction deliberately does not hide
+a decoded assignment that later fails Boolean verification; such a pair is a
+reduction counterexample to retain and inspect.

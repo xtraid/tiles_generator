@@ -14,6 +14,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+typedef WangSolveStatus (*SolveFunction)(
+    const Region *,
+    const WangSolverOptions *,
+    WangSolveResult *
+);
+
 static bool metrics_are_zero(const WangSolverMetrics *metrics)
 {
     return metrics->dfs_nodes == 0 &&
@@ -206,6 +212,224 @@ static void test_deterministic_unconstrained_region(void)
     wang_solve_result_destroy(&first);
     wang_solve_result_destroy(&second);
     region_destroy(&region);
+}
+
+static void assert_destroyed_result(const WangSolveResult *result)
+{
+    assert(result->domains == NULL);
+    assert(result->domain_count == 0);
+    assert(result->conflict_cell == 0);
+    assert(result->resolved_count == 0);
+    assert(result->decision_depth == 0);
+    assert(result->traced_leaf_count == 0);
+    assert(!result->trace_truncated);
+    assert(metrics_are_zero(&result->metrics));
+}
+
+static void assert_initial_domain_contract(SolveFunction solve)
+{
+    Region region = {0};
+    WangSolveResult result = {0};
+    assert(region_init(&region, 2, 1));
+    assert(region_set_active(&region, 0, 0, true));
+
+    uint32_t domains[] = {
+        UINT32_C(1) << TILE_F0,
+        0,
+    };
+    const WangSolverOptions constrained = {
+        .initial_domains = domains,
+        .initial_domain_count = 2,
+    };
+    assert(solve(&region, &constrained, &result) == WANG_SOLVE_SAT);
+    assert(result.domains[0] == (UINT32_C(1) << TILE_F0));
+    assert(domains[0] == (UINT32_C(1) << TILE_F0));
+    assert(domains[1] == 0);
+    assert_sat_snapshot(&region, &result);
+    wang_solve_result_destroy(&result);
+
+    domains[0] = 0;
+    assert(solve(&region, &constrained, &result) == WANG_SOLVE_UNSAT);
+    assert(result.domains == NULL);
+    assert(result.domain_count == 0);
+    assert(result.conflict_cell == 0);
+    wang_solve_result_destroy(&result);
+
+    domains[0] = WANG_DOMAIN_ALL;
+    domains[1] = UINT32_C(1) << TILE_F0;
+    assert(solve(&region, &constrained, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    region_destroy(&region);
+}
+
+static void assert_initial_domain_validation(SolveFunction solve)
+{
+    Region region = {0};
+    WangSolveResult result = {0};
+    assert(region_init(&region, 2, 1));
+    assert(region_set_active(&region, 0, 0, true));
+
+    uint32_t domains[] = { WANG_DOMAIN_ALL, 0 };
+    WangSolverOptions options = {
+        .initial_domains = NULL,
+        .initial_domain_count = 1,
+    };
+    assert(solve(&region, &options, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    options.initial_domains = domains;
+    options.initial_domain_count = 0;
+    assert(solve(&region, &options, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    options.initial_domain_count = 1;
+    assert(solve(&region, &options, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    options.initial_domain_count = 2;
+    domains[0] = WANG_DOMAIN_ALL | (UINT32_C(1) << TILE_COUNT);
+    assert(solve(&region, &options, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    domains[0] = 0;
+    domains[1] = UINT32_C(1) << TILE_COUNT;
+    assert(solve(&region, &options, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    domains[1] = UINT32_C(1) << TILE_F0;
+    assert(solve(&region, &options, &result) == WANG_SOLVE_ERROR);
+    assert_destroyed_result(&result);
+
+    domains[0] = WANG_DOMAIN_ALL;
+    domains[1] = 0;
+    assert(region_set_boundary(&region, 0, 0, N, COLOR_B));
+    assert(region_set_boundary(&region, 0, 0, E, COLOR_0));
+    assert(region_set_boundary(&region, 0, 0, S, COLOR_B));
+    assert(region_set_boundary(&region, 0, 0, W, COLOR_0));
+    domains[0] = UINT32_C(1) << TILE_F1;
+    assert(solve(&region, &options, &result) == WANG_SOLVE_UNSAT);
+    assert(result.conflict_cell == 0);
+    wang_solve_result_destroy(&result);
+
+    region_destroy(&region);
+}
+
+static void assert_initial_domain_isolated_choice(SolveFunction solve)
+{
+    Region region = {0};
+    WangSolveResult baseline = {0};
+    WangSolveResult absent = {0};
+    WangSolveResult restricted = {0};
+    assert(region_init(&region, 1, 1));
+    assert(region_set_active(&region, 0, 0, true));
+
+    const WangSolverOptions no_initial_domains = {0};
+    assert(solve(&region, NULL, &baseline) == WANG_SOLVE_SAT);
+    assert(solve(&region, &no_initial_domains, &absent) == WANG_SOLVE_SAT);
+    assert(baseline.domain_count == absent.domain_count);
+    assert(memcmp(
+        baseline.domains,
+        absent.domains,
+        baseline.domain_count * sizeof(*baseline.domains)
+    ) == 0);
+
+    const uint32_t domains[] = {
+        (UINT32_C(1) << TILE_F0) | (UINT32_C(1) << TILE_F1),
+    };
+    const WangSolverOptions options = {
+        .flags = WANG_SOLVE_COLLECT_METRICS,
+        .initial_domains = domains,
+        .initial_domain_count = 1,
+    };
+    assert(solve(&region, &options, &restricted) == WANG_SOLVE_SAT);
+    assert(restricted.domains[0] == (UINT32_C(1) << TILE_F0));
+    assert(restricted.metrics.domain_reductions == 2);
+    assert(domains[0] ==
+           ((UINT32_C(1) << TILE_F0) | (UINT32_C(1) << TILE_F1)));
+
+    wang_solve_result_destroy(&baseline);
+    wang_solve_result_destroy(&absent);
+    wang_solve_result_destroy(&restricted);
+    region_destroy(&region);
+}
+
+static void assert_initial_domain_root_diagnostics(SolveFunction solve)
+{
+    char path[] = "/tmp/wang-initial-domain-root-XXXXXX";
+    const int temporary_fd = mkstemp(path);
+    assert(temporary_fd >= 0);
+    assert(close(temporary_fd) == 0);
+
+    Region region = {0};
+    WangSolveResult result = {0};
+    assert(region_init(&region, 2, 1));
+    assert(region_set_active(&region, 0, 0, true));
+
+    const uint32_t domains[] = { 0, 0 };
+    const WangSolverOptions options = {
+        .flags = WANG_SOLVE_COLLECT_METRICS |
+            WANG_SOLVE_TRACE_FAILED_LEAVES |
+            WANG_SOLVE_CAPTURE_UNSAT_SNAPSHOT,
+        .failed_leaf_path = path,
+        .failed_leaf_capacity = 1,
+        .initial_domains = domains,
+        .initial_domain_count = 2,
+    };
+    assert(solve(&region, &options, &result) == WANG_SOLVE_UNSAT);
+    assert(result.domains != NULL);
+    assert(result.domain_count == 2);
+    assert(result.domains[0] == 0);
+    assert(result.domains[1] == 0);
+    assert(result.conflict_cell == 0);
+    assert(result.traced_leaf_count == 1);
+    assert(!result.trace_truncated);
+    assert(result.metrics.dfs_nodes == 0);
+    assert(result.metrics.failed_leaves == 1);
+    assert(result.metrics.domain_reductions == 1);
+    assert(result.metrics.initial_trail_writes == 0);
+    assert(result.metrics.search_trail_writes == 0);
+    assert(access(path, F_OK) == 0);
+    assert(domains[0] == 0 && domains[1] == 0);
+
+    assert(unlink(path) == 0);
+    wang_solve_result_destroy(&result);
+    region_destroy(&region);
+}
+
+static void assert_all_zero_dense_empty_region(SolveFunction solve)
+{
+    Region region = {0};
+    WangSolveResult result = {0};
+    assert(region_init(&region, 2, 1));
+
+    const uint32_t domains[] = { 0, 0 };
+    const WangSolverOptions options = {
+        .initial_domains = domains,
+        .initial_domain_count = 2,
+    };
+    assert(solve(&region, &options, &result) == WANG_SOLVE_SAT);
+    assert(result.domain_count == 2);
+    assert(result.domains[0] == 0 && result.domains[1] == 0);
+    assert_sat_snapshot(&region, &result);
+
+    wang_solve_result_destroy(&result);
+    region_destroy(&region);
+}
+
+static void test_initial_domain_contract(void)
+{
+    const SolveFunction solvers[] = {
+        wang_solve_serial,
+        wang_solve_optimized,
+    };
+    for (size_t i = 0; i < sizeof(solvers) / sizeof(solvers[0]); ++i) {
+        assert_initial_domain_contract(solvers[i]);
+        assert_initial_domain_validation(solvers[i]);
+        assert_initial_domain_isolated_choice(solvers[i]);
+        assert_initial_domain_root_diagnostics(solvers[i]);
+        assert_all_zero_dense_empty_region(solvers[i]);
+    }
 }
 
 static bool brute_force_two_cells(const Region *region)
@@ -473,6 +697,7 @@ int main(void)
     test_impossible_boundary_unsat_with_metrics();
     test_unsat_snapshot_is_opt_in();
     test_deterministic_unconstrained_region();
+    test_initial_domain_contract();
     test_small_regions_against_brute_force();
     test_mmap_trace_for_root_conflict();
     test_backtracking_and_trace_truncation();

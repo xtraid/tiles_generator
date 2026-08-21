@@ -118,6 +118,9 @@ native C solver       Z3 reference paths
                   v
        independent verifier
                   |
+                  +--> exact witness extension/extraction
+                       between Boolean assignments and Wang tilings
+                  |
                   v
       square-to-hex translation
                   |
@@ -138,6 +141,11 @@ tileability.
 - The region depends on the input formula and is built at runtime.
 - Search and verification remain independent implementations.
 - Z3 is an oracle and cross-check, not a replacement for the native C solver.
+- Witness extension pins only the variable-gadget cells; extraction first
+  verifies the whole Wang tiling and leaves Boolean clause checking to the
+  independent formula checker.
+- Witness correspondence does not claim a unique tiling for each assignment or
+  that extending an extracted assignment reproduces the original tiling.
 - OpenMP is introduced only after the serial path is correct and measurable.
 - Project conventions must be distinguished from claims inherited from the
   Yang–Zhang paper.
@@ -173,6 +181,10 @@ Implemented and tested as of 21 August 2026:
   compatibility masks, plus a packed private pending-cell bitset that
   suppresses duplicate optimized-queue entries and is omitted when no active
   adjacency can use it;
+- optional borrowed dense initial tile domains with identical reference and
+  optimized semantics, complete validation before solving, and a strict
+  distinction between malformed input (`ERROR`) and a legal contradictory
+  restriction (`UNSAT`);
 - optional solver metrics, an opt-in renderable best failed leaf for UNSAT,
   and a capped binary failed-leaf trace backed by `mmap`;
 - C regression tests, deterministic fuzzing against brute-force and Boolean
@@ -196,6 +208,18 @@ Implemented and tested as of 21 August 2026:
   returning;
 - a native reduction coordinator that parses once and branches from the live
   C formula to the Python formula copy and Yang–Zhang region builder;
+- a stateless native Yang–Zhang witness bridge that pins only the three
+  variable-gadget cells, extends an exact Boolean assignment through either
+  generic solver, verifies and decodes dense Wang tilings, and never reads the
+  reduction swap trace or evaluates Boolean clauses;
+- a scoped Python cross-check coordinator that connects Boolean Z3 to native
+  witness extension, extracts assignments from native or Wang-Z3 tilings, and
+  retains copied counterexamples across native cleanup;
+- exhaustive witness-level evidence over all 1,701 canonical formulas through
+  three variables, every one of their `2^n` assignments, and both native solver
+  entry points: direct Boolean validity agrees with extension SAT, and every
+  SAT tiling independently verifies and extracts the exact requested
+  assignment;
 - shared SAT/UNSAT `.cm13` fixtures exercised through all implemented
   end-to-end branches: native parser to Yang–Zhang region, serial solver, and
   verifier; native parser to Python formula copy, Boolean Z3, and witness
@@ -282,12 +306,14 @@ case once; the extended presets and JSON Lines capture command are documented in
 include/wang/    public C APIs
 src/core/        tiles and region primitives
 src/builder/     Yang-Zhang reduction components
+src/crosscheck/  Boolean/Wang witness bridge above solver and verifier
 src/solver/      serial solver
 src/parallel/    OpenMP path
 src/verify/      independent tiling verification
 src/io/          formula parsing and serialization
 python/model/    pure Python data contracts
 python/native/   C ABI adapters and ownership boundaries
+python/crosscheck/ scoped native/Z3 witness orchestration
 python/oracles/  independent Z3 oracles and witness checks
 python/hex/      square-to-hex translation and verifier
 tests/           C, Python, and instance regressions
@@ -300,8 +326,9 @@ The C parser is canonical for native input. Native adapters copy data into
 Python-owned models and never expose C pointers. Oracles accept models rather
 than paths: the Boolean oracle consumes `Formula`, while the Wang oracle
 consumes `Region + TILESET`. Both witness checkers are pure Python and
-independent of Z3. Python does not duplicate parsing or the Yang-Zhang
-reduction.
+independent of Z3. The cross-check layer alone coordinates those components
+with scoped native lifetimes; Python does not duplicate parsing or the
+Yang-Zhang reduction.
 
 ## Documentation
 
@@ -356,6 +383,11 @@ reduction.
 - [`docs/solver_comparison_smoke_2026-08-21.md`](docs/solver_comparison_smoke_2026-08-21.md)
   records the first seven-sample CPU-pinned baseline, complete ranges and RSS,
   the shallow-UNSAT explanation, and the six-variable Wang Z3 timeout pilot.
+- [`docs/designs/2026-08-21-witness-extension-design.md`](docs/designs/2026-08-21-witness-extension-design.md)
+  records the implemented contract for exact Boolean/Wang witness extension,
+  extraction, ownership, and independent verification.
+- [`docs/plans/2026-08-21-witness-extension.md`](docs/plans/2026-08-21-witness-extension.md)
+  records the corresponding test-first implementation and verification work.
 - [`docs/references.md`](docs/references.md) records authoritative paper links,
   their role in the project, and when a PDF may be copied into the repository.
 - [`docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf`](docs/Wang23_C_OpenMP_Architecture_Spec_Merged.pdf)

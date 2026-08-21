@@ -176,11 +176,20 @@ static void assert_semantic_pair(
     free(original);
 }
 
-static bool brute_force_two_cells(const Region *region)
+static bool brute_force_two_cells(
+    const Region *region,
+    const uint32_t domains[2]
+)
 {
     TileId tiles[2];
     for (tiles[0] = 0; tiles[0] < TILE_COUNT; ++tiles[0]) {
+        if ((domains[0] & (UINT32_C(1) << tiles[0])) == 0) {
+            continue;
+        }
         for (tiles[1] = 0; tiles[1] < TILE_COUNT; ++tiles[1]) {
+            if ((domains[1] & (UINT32_C(1) << tiles[1])) == 0) {
+                continue;
+            }
             if (wang_verify_tiling(region, tiles, 2) == WANG_VERIFY_VALID) {
                 return true;
             }
@@ -211,7 +220,14 @@ static void test_generic_boundary_matrix_against_brute_force(void)
             assert(region_set_boundary(&region, 0, 0, W, colors[west]));
             assert(region_set_boundary(&region, 1, 0, E, colors[east]));
 
-            const WangSolveStatus expected = brute_force_two_cells(&region)
+            const uint32_t domains[2] = {
+                WANG_DOMAIN_ALL,
+                WANG_DOMAIN_ALL,
+            };
+            const WangSolveStatus expected = brute_force_two_cells(
+                &region,
+                domains
+            )
                 ? WANG_SOLVE_SAT
                 : WANG_SOLVE_UNSAT;
             const WangSolverOptions capture = {
@@ -242,6 +258,123 @@ static void test_generic_boundary_matrix_against_brute_force(void)
         }
     }
     assert(saw_initial_propagation_conflict);
+}
+
+static void assert_constrained_two_cell_case(
+    const Region *region,
+    const uint32_t domains[2]
+)
+{
+    uint32_t reference_domains[2];
+    uint32_t optimized_domains[2];
+    uint32_t original_domains[2];
+    memcpy(reference_domains, domains, sizeof(reference_domains));
+    memcpy(optimized_domains, domains, sizeof(optimized_domains));
+    memcpy(original_domains, domains, sizeof(original_domains));
+
+    const WangSolverOptions reference_options = {
+        .initial_domains = reference_domains,
+        .initial_domain_count = 2,
+    };
+    const WangSolverOptions optimized_options = {
+        .initial_domains = optimized_domains,
+        .initial_domain_count = 2,
+    };
+    WangSolveResult reference = {0};
+    WangSolveResult optimized = {0};
+    const WangSolveStatus expected = brute_force_two_cells(region, domains)
+        ? WANG_SOLVE_SAT
+        : WANG_SOLVE_UNSAT;
+
+    assert(wang_solve_serial(
+        region,
+        &reference_options,
+        &reference
+    ) == expected);
+    assert(memcmp(
+        reference_domains,
+        original_domains,
+        sizeof(reference_domains)
+    ) == 0);
+    assert(wang_solve_optimized(
+        region,
+        &optimized_options,
+        &optimized
+    ) == expected);
+    assert(memcmp(
+        optimized_domains,
+        original_domains,
+        sizeof(optimized_domains)
+    ) == 0);
+
+    if (expected == WANG_SOLVE_SAT) {
+        assert_sat_witness(region, &reference);
+        assert_sat_witness(region, &optimized);
+        assert((reference.domains[0] & domains[0]) != 0);
+        assert((reference.domains[1] & domains[1]) != 0);
+        assert((optimized.domains[0] & domains[0]) != 0);
+        assert((optimized.domains[1] & domains[1]) != 0);
+    } else {
+        assert_unsat_result(region, &reference_options, &reference);
+        assert_unsat_result(region, &optimized_options, &optimized);
+    }
+
+    wang_solve_result_destroy(&reference);
+    wang_solve_result_destroy(&optimized);
+}
+
+static uint32_t next_random(uint32_t *state)
+{
+    *state = *state * UINT32_C(1664525) + UINT32_C(1013904223);
+    return *state;
+}
+
+static void test_initial_domains_against_brute_force(void)
+{
+    Region region = {0};
+    assert(region_init(&region, 2, 1));
+    activate_all(&region);
+
+    static const uint32_t deterministic[][2] = {
+        {
+            UINT32_C(1) << TILE_F0,
+            UINT32_C(1) << TILE_F0,
+        },
+        {
+            UINT32_C(1) << TILE_F0,
+            UINT32_C(1) << TILE_F1,
+        },
+        {
+            (UINT32_C(1) << TILE_F0) | (UINT32_C(1) << TILE_F1),
+            UINT32_C(1) << TILE_F1,
+        },
+        { 0, WANG_DOMAIN_ALL },
+        { WANG_DOMAIN_ALL, WANG_DOMAIN_ALL },
+    };
+    for (size_t i = 0;
+         i < sizeof(deterministic) / sizeof(deterministic[0]);
+         ++i) {
+        assert_constrained_two_cell_case(&region, deterministic[i]);
+    }
+
+    uint32_t random_state = UINT32_C(0x6d2b79f5);
+    for (size_t sample = 0; sample < 256; ++sample) {
+        uint32_t domains[2];
+        for (size_t cell = 0; cell < 2; ++cell) {
+            const uint32_t first = next_random(&random_state) % TILE_COUNT;
+            const uint32_t second = next_random(&random_state) % TILE_COUNT;
+            domains[cell] = (UINT32_C(1) << first) |
+                (UINT32_C(1) << second);
+            if ((sample + cell) % 17u == 0) {
+                domains[cell] = 0;
+            } else if ((sample + cell) % 13u == 0) {
+                domains[cell] = WANG_DOMAIN_ALL;
+            }
+        }
+        assert_constrained_two_cell_case(&region, domains);
+    }
+
+    region_destroy(&region);
 }
 
 static void test_generic_backtracking_case(void)
@@ -750,6 +883,7 @@ static void test_optimized_stack_grows_for_deep_search(void)
 int main(void)
 {
     test_generic_boundary_matrix_against_brute_force();
+    test_initial_domains_against_brute_force();
     test_generic_backtracking_case();
     test_yang_zhang_sat_and_unsat();
     test_unsat_diagnostic_modes();

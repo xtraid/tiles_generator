@@ -7,6 +7,10 @@
 
 #include "wang/region.h"
 
+/* Canonical public domain containing every atomic tile ID. */
+#define WANG_DOMAIN_ALL \
+    ((UINT32_C(1) << TILE_COUNT) - UINT32_C(1))
+
 typedef enum {
     WANG_SOLVE_ERROR = -1,
     WANG_SOLVE_UNSAT = 0,
@@ -57,6 +61,20 @@ typedef struct {
      */
     const char *failed_leaf_path;
     size_t failed_leaf_capacity;
+
+    /*
+     * Optional borrowed dense row-major root domains, parallel to
+     * Region.cells. Absence is exactly NULL/0; presence requires a non-NULL
+     * pointer and initial_domain_count == region->cell_count. The solver
+     * reads this array only for the duration of the call and never modifies,
+     * stores, or frees it.
+     *
+     * Entries may use only bits in WANG_DOMAIN_ALL. Inactive cells require
+     * zero. Active cells accept any subset: zero is a well-formed
+     * contradiction (UNSAT), while WANG_DOMAIN_ALL adds no restriction.
+     */
+    const uint32_t *initial_domains;
+    size_t initial_domain_count;
 } WangSolverOptions;
 
 typedef struct {
@@ -87,8 +105,9 @@ typedef struct {
  *
  * options may be NULL. out_result must be zero-initialized or destroyed.
  * On SAT, and on UNSAT when snapshot capture was requested, the caller owns
- * out_result->domains. On UNSAT without capture, domains is NULL. On ERROR,
- * out_result remains destroyed.
+ * out_result->domains. On UNSAT without capture, domains is NULL. With a
+ * conforming zero-initialized or destroyed output, ERROR leaves it destroyed;
+ * an already-owned output is invalid and is rejected unchanged.
  */
 WangSolveStatus wang_solve_serial(
     const Region *region,
