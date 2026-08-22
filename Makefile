@@ -15,6 +15,18 @@ SANITIZER_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -Werror \
 	-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer
 ANALYZER_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -Werror \
 	-O1 -fanalyzer
+COVERAGE_CC ?= gcc
+COVERAGE_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -O0 -g \
+	--coverage
+FUZZ_CC ?= clang
+FUZZ_CFLAGS ?= -std=c17 -Wall -Wextra -Wpedantic -Werror -O1 -g \
+	-fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer
+FUZZ_SEED ?= 20260822
+FUZZ_RUNS ?= 100000
+FUZZ_SMOKE_RUNS ?= 2000
+FUZZ_MAX_LEN ?= 4096
+FUZZ_TIMEOUT ?= 2
+FUZZ_RSS_LIMIT_MB ?= 256
 ASAN_OPTIONS ?= detect_leaks=1:strict_string_checks=1
 UBSAN_OPTIONS ?= print_stacktrace=1:halt_on_error=1
 
@@ -56,6 +68,15 @@ BENCHMARK_SOURCE := benchmarks/c/bench_solver.c
 BENCHMARK_BIN := $(BUILD_DIR)/benchmarks/c/bench_solver
 BENCHMARK_DEP := $(BENCHMARK_BIN).d
 SOLVER_COMPARISON := benchmarks/python/compare_solvers.py
+COVERAGE_DIR := $(BUILD_DIR)/coverage
+C_COVERAGE_BUILD_DIR := $(COVERAGE_DIR)/c-build
+C_COVERAGE_REPORT_DIR := $(COVERAGE_DIR)/c
+PYTHON_COVERAGE_DIR := $(COVERAGE_DIR)/python
+PARSER_FUZZ_SOURCE := tests/fuzz/fuzz_formula_parser.c
+PARSER_FUZZ_BIN := $(BUILD_DIR)/fuzz/fuzz_formula_parser
+PARSER_FUZZ_SEEDS := tests/fuzz/corpus/cm13
+PARSER_FUZZ_CORPUS := $(BUILD_DIR)/fuzz/cm13-corpus
+PARSER_FUZZ_ARTIFACTS := $(BUILD_DIR)/fuzz/artifacts
 
 SERIAL_LIBRARY := $(LIB_DIR)/libwang.a
 SHARED_LIBRARY := $(LIB_DIR)/libwang.so
@@ -64,7 +85,8 @@ OPENMP_LIBRARY := $(LIB_DIR)/libwang_openmp.a
 .PHONY: all setup serial shared openmp check c-check python-check pages-check \
 	strict-check sanitizer-check analyzer-check valgrind-check \
 	cachegrind-check benchmark benchmark-smoke benchmark-compare \
-	benchmark-compare-smoke clean
+	benchmark-compare-smoke coverage coverage-c coverage-python \
+	parser-fuzz parser-fuzz-smoke parser-fuzz-corpus clean
 
 all: serial shared
 
@@ -232,6 +254,75 @@ ifneq ($(strip $(PYTHON_TESTS)),)
 else
 	@echo "No Python tests found; build checks passed."
 endif
+
+coverage: coverage-c coverage-python
+
+coverage-c:
+	$(RM) -r $(C_COVERAGE_BUILD_DIR) $(C_COVERAGE_REPORT_DIR)
+	# The parser path test writes a temporary fixture at this fixed build path.
+	mkdir -p $(BUILD_DIR)/tests/c
+	$(MAKE) c-check \
+		BUILD_DIR="$(C_COVERAGE_BUILD_DIR)" \
+		CC="$(COVERAGE_CC)" \
+		CFLAGS="$(COVERAGE_CFLAGS)"
+	mkdir -p $(C_COVERAGE_REPORT_DIR)
+	$(UV) run --frozen gcovr \
+		--root "$(CURDIR)" \
+		--object-directory "$(C_COVERAGE_BUILD_DIR)" \
+		--filter '$(CURDIR)/src/' \
+		--exclude-unreachable-branches \
+		--gcov-suspicious-hits-threshold 0 \
+		--print-summary \
+		--txt "$(C_COVERAGE_REPORT_DIR)/coverage.txt" \
+		--html-details "$(C_COVERAGE_REPORT_DIR)/index.html" \
+		--xml "$(C_COVERAGE_REPORT_DIR)/coverage.xml"
+
+coverage-python: shared
+	$(RM) -r $(PYTHON_COVERAGE_DIR)
+	mkdir -p $(PYTHON_COVERAGE_DIR)
+	PYTHONPATH="$(CURDIR)/python" \
+		COVERAGE_FILE="$(CURDIR)/$(PYTHON_COVERAGE_DIR)/.coverage" \
+		$(UV) run --frozen coverage run -m unittest discover \
+		-s tests/python -p 'test_*.py'
+	COVERAGE_FILE="$(CURDIR)/$(PYTHON_COVERAGE_DIR)/.coverage" \
+		$(UV) run --frozen coverage report
+	COVERAGE_FILE="$(CURDIR)/$(PYTHON_COVERAGE_DIR)/.coverage" \
+		$(UV) run --frozen coverage json \
+		-o "$(PYTHON_COVERAGE_DIR)/coverage.json"
+	COVERAGE_FILE="$(CURDIR)/$(PYTHON_COVERAGE_DIR)/.coverage" \
+		$(UV) run --frozen coverage html \
+		-d "$(PYTHON_COVERAGE_DIR)/html"
+
+$(PARSER_FUZZ_BIN): $(PARSER_FUZZ_SOURCE) src/core/formula.c \
+		src/io/formula_parser.c include/wang/formula.h \
+		include/wang/formula_parser.h
+	@mkdir -p $(@D)
+	$(FUZZ_CC) $(CPPFLAGS) $(FUZZ_CFLAGS) \
+		$(PARSER_FUZZ_SOURCE) src/core/formula.c src/io/formula_parser.c \
+		-o $@
+
+parser-fuzz-corpus:
+	$(RM) -r $(PARSER_FUZZ_CORPUS) $(PARSER_FUZZ_ARTIFACTS)
+	mkdir -p $(PARSER_FUZZ_CORPUS) $(PARSER_FUZZ_ARTIFACTS)
+	cp $(PARSER_FUZZ_SEEDS)/* $(PARSER_FUZZ_CORPUS)/
+
+parser-fuzz-smoke: $(PARSER_FUZZ_BIN) parser-fuzz-corpus
+	ASAN_OPTIONS="allocator_may_return_null=1:hard_rss_limit_mb=$(FUZZ_RSS_LIMIT_MB):$(ASAN_OPTIONS)" \
+		UBSAN_OPTIONS="$(UBSAN_OPTIONS)" \
+		$(PARSER_FUZZ_BIN) $(PARSER_FUZZ_CORPUS) \
+		-seed=$(FUZZ_SEED) -runs=$(FUZZ_SMOKE_RUNS) \
+		-max_len=$(FUZZ_MAX_LEN) -timeout=$(FUZZ_TIMEOUT) \
+		-rss_limit_mb=0 \
+		-artifact_prefix=$(PARSER_FUZZ_ARTIFACTS)/
+
+parser-fuzz: $(PARSER_FUZZ_BIN) parser-fuzz-corpus
+	ASAN_OPTIONS="allocator_may_return_null=1:hard_rss_limit_mb=$(FUZZ_RSS_LIMIT_MB):$(ASAN_OPTIONS)" \
+		UBSAN_OPTIONS="$(UBSAN_OPTIONS)" \
+		$(PARSER_FUZZ_BIN) $(PARSER_FUZZ_CORPUS) \
+		-seed=$(FUZZ_SEED) -runs=$(FUZZ_RUNS) \
+		-max_len=$(FUZZ_MAX_LEN) -timeout=$(FUZZ_TIMEOUT) \
+		-rss_limit_mb=0 \
+		-artifact_prefix=$(PARSER_FUZZ_ARTIFACTS)/
 
 clean:
 	$(RM) -r $(BUILD_DIR)

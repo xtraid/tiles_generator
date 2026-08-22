@@ -34,6 +34,12 @@ reference solver path.
 
 ## Quick start
 
+The supported development and execution platform is Linux on a POSIX userspace.
+The current toolchain relies on Linux/POSIX facilities including `mmap`,
+`/proc`, Valgrind, and dynamic loading of `libwang.so`. Windows and macOS are
+not currently supported; no compatibility backend is implied or planned
+without a concrete requirement.
+
 Requirements are a C17 compiler, `make`, OpenMP support, and
 [`uv`](https://docs.astral.sh/uv/). Then:
 
@@ -277,6 +283,8 @@ make shared
 make openmp
 make c-check
 make python-check
+make coverage
+make parser-fuzz-smoke
 make strict-check
 make sanitizer-check
 make analyzer-check
@@ -286,6 +294,38 @@ make benchmark
 make benchmark-compare-smoke
 make benchmark-compare
 ```
+
+`make coverage` runs the complete C and Python test suites with branch
+instrumentation and writes disposable text, XML/JSON, and HTML output below
+`build/coverage/`. The baseline is informational: these targets deliberately
+set no pass/fail percentage threshold. The dated interpretation is published
+in the [coverage baseline](docs/coverage_baseline_2026-08-22.md).
+
+`make parser-fuzz-smoke` builds a Clang libFuzzer harness for the canonical
+`.cm13` parser with AddressSanitizer and UndefinedBehaviorSanitizer, copies the
+versioned valid and malformed seeds into disposable storage below `build/`, and
+runs a deterministic short campaign. The committed corpus is therefore never
+modified by fuzzing. For a longer local campaign, use `make parser-fuzz`; its
+defaults can be overridden explicitly, for example:
+
+```sh
+make parser-fuzz FUZZ_RUNS=1000000 FUZZ_MAX_LEN=16384 FUZZ_TIMEOUT=5
+```
+
+Both targets set `allocator_may_return_null=1` only for the fuzz process. This
+lets intentionally enormous headers exercise the parser's out-of-memory return
+instead of being reported as an AddressSanitizer allocation abort; all other
+ASan and UBSan findings remain fatal. LibFuzzer's combined allocation/RSS guard
+is disabled so it does not pre-empt that return path; AddressSanitizer instead
+enforces a finite 256 MiB hard RSS limit. Maximum input length and per-input
+timeout are also bounded, and the artifact directory is recreated for every
+campaign below `build/`. The smoke uses fixed seed and run count and runs as a
+separate read-only CI job. Its measured result is recorded in the
+[parser fuzz smoke report](docs/parser_fuzz_smoke_2026-08-22.md).
+
+Dependabot checks GitHub Actions and the uv lockfile weekly. Every CI action is
+pinned to a reviewed full commit SHA with its release version retained in a
+comment, and repository checkout does not persist credentials.
 
 `make benchmark` builds the portable `-O2` harness and runs the reference path
 over the versioned generic and Yang–Zhang corpus in separate timing,
